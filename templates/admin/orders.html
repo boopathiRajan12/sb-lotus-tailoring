@@ -1,0 +1,46 @@
+{% extends 'admin/base_admin.html' %}
+{% block title %}Manage Orders - SB Lotus Tailoring{% endblock %}
+
+{% block admin_content %}
+<div class="page-header">
+    <h2>Orders</h2>
+</div>
+
+{% if orders %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Order #</th>
+                <th>Customer</th>
+                <th>Phone</th>
+                <th>Items</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for order in orders %}
+            <tr>
+                <td><strong>#{{ order.id }}</strong></td>
+                <td>{{ order.user.username }}</td>
+                <td>{{ order.phone or '-' }}</td>
+                <td>{{ order.items|length }}</td>
+                <td>Rs. {{ "%.2f"|format(order.total_amount) }}</td>
+                <td><span class="badge badge-{{ order.status }}">{{ order.status|capitalize }}</span></td>
+                <td>{{ order.created_at.strftime('%d %b %Y') }}</td>
+                <td>
+                    <a href="{{ url_for('admin.order_detail', order_id=order.id) }}" class="btn btn-sm btn-outline">View</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <h3>No orders yet</h3>
+        <p>Orders will appear here when customers place them.</p>
+    </div>
+{% endif %}
+{% endblock %}

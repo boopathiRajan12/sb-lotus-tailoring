@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SB Lotus Tailoring Shop{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="container">
+            <a href="{{ url_for('shop.home') }}" class="navbar-brand">
+                <span>SB</span> LOTUS TAILORING SHOP
+            </a>
+            <button class="nav-toggle" aria-label="Toggle navigation">&#9776;</button>
+            <ul class="nav-links">
+                <li><a href="{{ url_for('shop.home') }}">Home</a></li>
+                <li><a href="{{ url_for('shop.product_list') }}">Products</a></li>
+                <li><a href="{{ url_for('shop.custom_blouse') }}">Custom Blouse</a></li>
+                <li><a href="{{ url_for('shop.about') }}">About</a></li>
+                {% if current_user.is_authenticated %}
+                    {% if current_user.is_admin %}
+                        <li><a href="{{ url_for('admin.dashboard') }}">Admin Panel</a></li>
+                    {% else %}
+                        <li><a href="{{ url_for('cart.view_cart') }}">Cart
+                            {% set cart_count = current_user.cart_items|length %}
+                            {% if cart_count > 0 %}
+                                <span class="nav-cart-badge">{{ cart_count }}</span>
+                            {% endif %}
+                        </a></li>
+                        <li><a href="{{ url_for('cart.my_orders') }}">My Orders</a></li>
+                    {% endif %}
+                    <li><a href="{{ url_for('auth.logout') }}">Logout</a></li>
+                {% else %}
+                    <li><a href="{{ url_for('auth.login') }}">Login</a></li>
+                    <li><a href="{{ url_for('auth.register') }}" class="btn btn-secondary btn-sm">Register</a></li>
+                {% endif %}
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="container flash-messages">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message }}
+                        <button class="alert-close">&times;</button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Main Content -->
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div>
+                    <h4>SB Lotus Tailoring Shop</h4>
+                    <p>Quality stitching and tailoring services for all your needs. From blouses to school uniforms, we craft with care.</p>
+                </div>
+                <div>
+                    <h4>Our Services</h4>
+                    <ul>
+                        <li>Blouse Stitching</li>
+                        <li>School Uniforms</li>
+                        <li>Sudithar Stitching</li>
+                        <li>Tops &amp; Pants</li>
+                        <li>Pavadai &amp; Sattai</li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Quick Links</h4>
+                    <ul>
+                        <li><a href="{{ url_for('shop.product_list') }}">Browse Products</a></li>
+                        <li><a href="{{ url_for('shop.custom_blouse') }}">Custom Blouse Designs</a></li>
+                        <li><a href="{{ url_for('shop.about') }}">About Us</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4>Contact</h4>
+                    <p>Visit us at our shop for measurements and consultations.</p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                &copy; 2026 SB Lotus Tailoring Shop. All rights reserved.
+            </div>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

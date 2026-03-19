@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Products - SB Lotus Tailoring{% endblock %}
+
+{% block content %}
+<div class="container" style="padding: 30px 0;">
+    <h2 class="section-title">Our Products</h2>
+
+    <!-- Search & Filter -->
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 25px; justify-content: center;">
+        <form method="GET" action="{{ url_for('shop.product_list') }}" style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+            <input type="text" name="q" class="form-control" style="max-width: 300px;" placeholder="Search products..." value="{{ search_query }}">
+            <button type="submit" class="btn btn-primary btn-sm">Search</button>
+        </form>
+    </div>
+
+    <!-- Category Filter -->
+    <div class="category-cards" style="margin-bottom: 30px;">
+        <a href="{{ url_for('shop.product_list') }}" class="category-card {% if not current_category %}active{% endif %}">All</a>
+        {% for cat in categories %}
+            <a href="{{ url_for('shop.product_list', category=cat.id) }}" class="category-card {% if current_category == cat.id %}active{% endif %}">{{ cat.name }}</a>
+        {% endfor %}
+    </div>
+
+    <!-- Product Grid -->
+    {% if products.items %}
+        <div class="product-grid">
+            {% for product in products.items %}
+                <div class="product-card">
+                    <a href="{{ url_for('shop.product_detail', product_id=product.id) }}">
+                        <img src="{{ url_for('static', filename=product.primary_image) }}" alt="{{ product.name }}" class="product-card-img">
+                    </a>
+                    <div class="product-card-body">
+                        <span class="category-tag">{{ product.category.name }}</span>
+                        <h3>{{ product.name }}</h3>
+                        <div class="price">Rs. {{ "%.2f"|format(product.price) }}</div>
+                    </div>
+                    <div class="product-card-footer">
+                        <a href="{{ url_for('shop.product_detail', product_id=product.id) }}" class="btn btn-outline btn-sm">View Details</a>
+                        {% if current_user.is_authenticated and not current_user.is_admin %}
+                            <form method="POST" action="{{ url_for('cart.add_to_cart', product_id=product.id) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-primary btn-sm">Add to Cart</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <!-- Pagination -->
+        {% if products.pages > 1 %}
+            <div class="pagination">
+                {% if products.has_prev %}
+                    <a href="{{ url_for('shop.product_list', page=products.prev_num, category=current_category, q=search_query) }}">Prev</a>
+                {% endif %}
+                {% for page_num in products.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if page_num %}
+                        {% if page_num == products.page %}
+                            <span class="active-page">{{ page_num }}</span>
+                        {% else %}
+                            <a href="{{ url_for('shop.product_list', page=page_num, category=current_category, q=search_query) }}">{{ page_num }}</a>
+                        {% endif %}
+                    {% else %}
+                        <span>...</span>
+                    {% endif %}
+                {% endfor %}
+                {% if products.has_next %}
+                    <a href="{{ url_for('shop.product_list', page=products.next_num, category=current_category, q=search_query) }}">Next</a>
+                {% endif %}
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="empty-state">
+            <h3>No products found</h3>
+            <p>Try a different search or browse all categories.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

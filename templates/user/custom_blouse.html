@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Custom Blouse Designs - SB Lotus Tailoring{% endblock %}
+
+{% block content %}
+<div class="container" style="padding: 40px 0;">
+    <h2 class="section-title">Custom Blouse Designs</h2>
+    <p style="text-align: center; color: var(--text-light); max-width: 600px; margin: -15px auto 30px;">
+        Browse our pre-stitched blouse designs. Select a design you love, provide your measurements, and we will stitch it perfectly for you.
+    </p>
+
+    {% if designs %}
+        <div class="blouse-grid">
+            {% for design in designs %}
+                <div class="blouse-card">
+                    <a href="{{ url_for('shop.product_detail', product_id=design.id) }}">
+                        {% if design.images %}
+                            <img src="{{ url_for('static', filename=design.images[0].image_path) }}" alt="{{ design.name }}" class="blouse-card-img">
+                        {% else %}
+                            <img src="{{ url_for('static', filename='images/products/default.png') }}" alt="{{ design.name }}" class="blouse-card-img">
+                        {% endif %}
+                    </a>
+                    <div class="blouse-card-body">
+                        <h3>{{ design.name }}</h3>
+                        {% if design.description %}
+                            <p style="color: var(--text-light); margin-bottom: 10px; font-size: 0.9rem;">{{ design.description[:100] }}{% if design.description|length > 100 %}...{% endif %}</p>
+                        {% endif %}
+                        <div class="price" style="margin-bottom: 15px;">Rs. {{ "%.2f"|format(design.price) }}</div>
+                        <a href="{{ url_for('shop.product_detail', product_id=design.id) }}" class="btn btn-primary btn-sm">Select This Design</a>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <h3>No designs available yet</h3>
+            <p>Check back soon! We are adding new blouse designs regularly.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

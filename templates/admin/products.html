@@ -1,0 +1,56 @@
+{% extends 'admin/base_admin.html' %}
+{% block title %}Manage Products - SB Lotus Tailoring{% endblock %}
+
+{% block admin_content %}
+<div class="page-header">
+    <h2>Products</h2>
+    <a href="{{ url_for('admin.add_product') }}" class="btn btn-primary">Add Product</a>
+</div>
+
+{% if products %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Image</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Stock</th>
+                <th>Custom Blouse</th>
+                <th>Active</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for product in products %}
+            <tr>
+                <td>
+                    {% if product.images %}
+                        <img src="{{ url_for('static', filename=product.images[0].image_path) }}" alt="{{ product.name }}">
+                    {% else %}
+                        <img src="{{ url_for('static', filename='images/products/default.png') }}" alt="No image">
+                    {% endif %}
+                </td>
+                <td><strong>{{ product.name }}</strong></td>
+                <td>{{ product.category.name }}</td>
+                <td>Rs. {{ "%.2f"|format(product.price) }}</td>
+                <td>{{ product.stock }}</td>
+                <td>{{ 'Yes' if product.is_custom_blouse else 'No' }}</td>
+                <td>{{ 'Yes' if product.is_active else 'No' }}</td>
+                <td class="actions">
+                    <a href="{{ url_for('admin.edit_product', product_id=product.id) }}" class="btn btn-sm btn-outline">Edit</a>
+                    <form method="POST" action="{{ url_for('admin.delete_product', product_id=product.id) }}" style="display:inline;" onsubmit="return confirm('Delete this product and all its images?');">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <h3>No products yet</h3>
+        <p>Add your first product to get started.</p>
+    </div>
+{% endif %}
+{% endblock %}

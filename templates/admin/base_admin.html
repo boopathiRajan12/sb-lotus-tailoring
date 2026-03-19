@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="admin-layout">
+    <!-- Admin Sidebar -->
+    <aside class="admin-sidebar">
+        <h3>Admin Menu</h3>
+        <a href="{{ url_for('admin.dashboard') }}" class="{% if request.endpoint == 'admin.dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="{{ url_for('admin.categories') }}" class="{% if 'categor' in request.endpoint %}active{% endif %}">Categories</a>
+        <a href="{{ url_for('admin.products') }}" class="{% if 'product' in request.endpoint %}active{% endif %}">Products</a>
+        <a href="{{ url_for('admin.orders') }}" class="{% if 'order' in request.endpoint %}active{% endif %}">Orders</a>
+        <a href="{{ url_for('shop.home') }}">View Shop</a>
+    </aside>
+
+    <!-- Admin Content Area -->
+    <div class="admin-content">
+        {% block admin_content %}{% endblock %}
+    </div>
+</div>
+{% endblock %}

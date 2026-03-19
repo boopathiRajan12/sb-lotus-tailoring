@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}Order Confirmed - SB Lotus Tailoring{% endblock %}
+
+{% block content %}
+<div class="container" style="padding: 60px 0; text-align: center;">
+    <div style="background: var(--bg-white); max-width: 600px; margin: 0 auto; padding: 40px; border-radius: var(--radius); box-shadow: var(--shadow);">
+        <div style="font-size: 3rem; color: var(--success); margin-bottom: 15px;">&#10003;</div>
+        <h2 style="color: var(--primary); margin-bottom: 10px;">Order Placed Successfully!</h2>
+        <p style="color: var(--text-light); margin-bottom: 25px;">
+            Your order <strong>#{{ order.id }}</strong> has been placed. We will contact you soon to confirm.
+        </p>
+
+        <div style="text-align: left; background: var(--accent); padding: 20px; border-radius: var(--radius); margin-bottom: 25px;">
+            <p><strong>Order ID:</strong> #{{ order.id }}</p>
+            <p><strong>Total:</strong> Rs. {{ "%.2f"|format(order.total_amount) }}</p>
+            <p><strong>Status:</strong> <span class="badge badge-pending">{{ order.status }}</span></p>
+            <p><strong>Delivery Address:</strong> {{ order.shipping_address }}</p>
+            <p><strong>Phone:</strong> {{ order.phone }}</p>
+        </div>
+
+        <h3 style="margin-bottom: 15px;">Order Items</h3>
+        {% for item in order.items %}
+            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
+                <span>{{ item.product.name }} x {{ item.quantity }}</span>
+                <span>Rs. {{ "%.2f"|format(item.price * item.quantity) }}</span>
+            </div>
+        {% endfor %}
+
+        <div style="margin-top: 25px;">
+            <a href="{{ url_for('cart.my_orders') }}" class="btn btn-outline">View All Orders</a>
+            <a href="{{ url_for('shop.product_list') }}" class="btn btn-primary">Continue Shopping</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

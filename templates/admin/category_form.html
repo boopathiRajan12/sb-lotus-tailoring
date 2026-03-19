@@ -1,0 +1,30 @@
+{% extends 'admin/base_admin.html' %}
+{% block title %}{{ 'Edit' if category else 'Add' }} Category - SB Lotus Tailoring{% endblock %}
+
+{% block admin_content %}
+<div class="page-header">
+    <h2>{{ 'Edit' if category else 'Add New' }} Category</h2>
+    <a href="{{ url_for('admin.categories') }}" class="btn btn-outline btn-sm">Back to Categories</a>
+</div>
+
+<div style="max-width: 600px; background: var(--bg-white); padding: 30px; border-radius: var(--radius); box-shadow: var(--shadow);">
+    <form method="POST">
+        <div class="form-group">
+            <label for="name">Category Name *</label>
+            <input type="text" id="name" name="name" class="form-control" required value="{{ category.name if category else '' }}" placeholder="e.g., Blouse, Sudithar, School Uniform">
+        </div>
+        <div class="form-group">
+            <label for="description">Description</label>
+            <textarea id="description" name="description" class="form-control" rows="3" placeholder="Brief description of this category">{{ category.description if category else '' }}</textarea>
+        </div>
+        <div class="form-group">
+            <label for="category_type">Type</label>
+            <select id="category_type" name="category_type" class="form-control">
+                <option value="stitching" {% if category and category.category_type == 'stitching' %}selected{% endif %}>Stitching Service</option>
+                <option value="readymade" {% if category and category.category_type == 'readymade' %}selected{% endif %}>Ready-made Product</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">{{ 'Update' if category else 'Add' }} Category</button>
+    </form>
+</div>
+{% endblock %}

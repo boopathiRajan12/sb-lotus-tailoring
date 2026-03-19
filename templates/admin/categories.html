@@ -1,0 +1,46 @@
+{% extends 'admin/base_admin.html' %}
+{% block title %}Manage Categories - SB Lotus Tailoring{% endblock %}
+
+{% block admin_content %}
+<div class="page-header">
+    <h2>Categories</h2>
+    <a href="{{ url_for('admin.add_category') }}" class="btn btn-primary">Add Category</a>
+</div>
+
+{% if categories %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Description</th>
+                <th>Products</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cat in categories %}
+            <tr>
+                <td>{{ cat.id }}</td>
+                <td><strong>{{ cat.name }}</strong></td>
+                <td><span class="badge badge-confirmed">{{ cat.category_type }}</span></td>
+                <td>{{ cat.description or '-' }}</td>
+                <td>{{ cat.products|length }}</td>
+                <td class="actions">
+                    <a href="{{ url_for('admin.edit_category', category_id=cat.id) }}" class="btn btn-sm btn-outline">Edit</a>
+                    <form method="POST" action="{{ url_for('admin.delete_category', category_id=cat.id) }}" style="display:inline;" onsubmit="return confirm('Delete this category?');">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <h3>No categories yet</h3>
+        <p>Add your first category to start organizing products.</p>
+    </div>
+{% endif %}
+{% endblock %}

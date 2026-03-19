@@ -1,0 +1,67 @@
+{% extends 'admin/base_admin.html' %}
+{% block title %}Order #{{ order.id }} - SB Lotus Tailoring{% endblock %}
+
+{% block admin_content %}
+<div class="page-header">
+    <h2>Order #{{ order.id }}</h2>
+    <a href="{{ url_for('admin.orders') }}" class="btn btn-outline btn-sm">Back to Orders</a>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 25px;">
+    <!-- Order Info -->
+    <div style="background: var(--bg-white); padding: 25px; border-radius: var(--radius); box-shadow: var(--shadow);">
+        <h3 style="margin-bottom: 15px; color: var(--primary);">Order Details</h3>
+        <p><strong>Customer:</strong> {{ order.user.username }} ({{ order.user.email }})</p>
+        <p><strong>Phone:</strong> {{ order.phone or '-' }}</p>
+        <p><strong>Address:</strong> {{ order.shipping_address or '-' }}</p>
+        <p><strong>Notes:</strong> {{ order.notes or 'None' }}</p>
+        <p><strong>Date:</strong> {{ order.created_at.strftime('%d %b %Y, %I:%M %p') }}</p>
+        <p><strong>Total:</strong> <span style="font-size: 1.2rem; color: var(--primary); font-weight: 700;">Rs. {{ "%.2f"|format(order.total_amount) }}</span></p>
+    </div>
+
+    <!-- Update Status -->
+    <div style="background: var(--bg-white); padding: 25px; border-radius: var(--radius); box-shadow: var(--shadow);">
+        <h3 style="margin-bottom: 15px; color: var(--primary);">Update Status</h3>
+        <p>Current: <span class="badge badge-{{ order.status }}">{{ order.status|capitalize }}</span></p>
+        <form method="POST" action="{{ url_for('admin.update_order_status', order_id=order.id) }}" style="margin-top: 15px;">
+            <div class="form-group">
+                <select name="status" class="form-control">
+                    <option value="pending" {% if order.status == 'pending' %}selected{% endif %}>Pending</option>
+                    <option value="confirmed" {% if order.status == 'confirmed' %}selected{% endif %}>Confirmed</option>
+                    <option value="stitching" {% if order.status == 'stitching' %}selected{% endif %}>Stitching</option>
+                    <option value="ready" {% if order.status == 'ready' %}selected{% endif %}>Ready</option>
+                    <option value="delivered" {% if order.status == 'delivered' %}selected{% endif %}>Delivered</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Update Status</button>
+        </form>
+    </div>
+</div>
+
+<!-- Order Items -->
+<div style="margin-top: 25px;">
+    <h3 style="margin-bottom: 15px;">Order Items</h3>
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Quantity</th>
+                <th>Unit Price</th>
+                <th>Subtotal</th>
+                <th>Measurements</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in order.items %}
+            <tr>
+                <td>{{ item.product.name }}</td>
+                <td>{{ item.quantity }}</td>
+                <td>Rs. {{ "%.2f"|format(item.price) }}</td>
+                <td>Rs. {{ "%.2f"|format(item.price * item.quantity) }}</td>
+                <td>{{ item.measurements or 'N/A' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}My Orders - SB Lotus Tailoring{% endblock %}
+
+{% block content %}
+<div class="container" style="padding: 30px 0;">
+    <h2 class="section-title">My Orders</h2>
+
+    {% if orders %}
+        <table class="cart-table">
+            <thead>
+                <tr>
+                    <th>Order #</th>
+                    <th>Date</th>
+                    <th>Items</th>
+                    <th>Total</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                <tr>
+                    <td><strong>#{{ order.id }}</strong></td>
+                    <td>{{ order.created_at.strftime('%d %b %Y') }}</td>
+                    <td>
+                        {% for item in order.items %}
+                            {{ item.product.name }} (x{{ item.quantity }}){% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                    </td>
+                    <td>Rs. {{ "%.2f"|format(order.total_amount) }}</td>
+                    <td><span class="badge badge-{{ order.status }}">{{ order.status|capitalize }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            <h3>No orders yet</h3>
+            <p>You have not placed any orders.</p>
+            <a href="{{ url_for('shop.product_list') }}" class="btn btn-primary" style="margin-top: 15px;">Browse Products</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}SB Lotus Tailoring Shop - Home{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="hero">
+    <h1>SB LOTUS TAILORING SHOP</h1>
+    <p>Quality stitching and tailoring for blouses, uniforms, sudithars, and traditional dresses. Crafted with precision and care.</p>
+    <a href="{{ url_for('shop.product_list') }}" class="btn btn-secondary btn-lg">Browse Our Collection</a>
+</section>
+
+<!-- Categories Section -->
+<section style="padding: 50px 0;">
+    <div class="container">
+        <h2 class="section-title">Our Services</h2>
+        <div class="category-cards">
+            {% for category in categories %}
+                <a href="{{ url_for('shop.product_list', category=category.id) }}" class="category-card">
+                    <strong>{{ category.name }}</strong>
+                    {% if category.description %}
+                        <br><small>{{ category.description }}</small>
+                    {% endif %}
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<!-- Featured Products -->
+{% if products %}
+<section style="padding: 30px 0 60px;">
+    <div class="container">
+        <h2 class="section-title">Latest Products</h2>
+        <div class="product-grid">
+            {% for product in products %}
+                <div class="product-card">
+                    <a href="{{ url_for('shop.product_detail', product_id=product.id) }}">
+                        <img src="{{ url_for('static', filename=product.primary_image) }}" alt="{{ product.name }}" class="product-card-img">
+                    </a>
+                    <div class="product-card-body">
+                        <span class="category-tag">{{ product.category.name }}</span>
+                        <h3>{{ product.name }}</h3>
+                        <div class="price">Rs. {{ "%.2f"|format(product.price) }}</div>
+                    </div>
+                    <div class="product-card-footer">
+                        <a href="{{ url_for('shop.product_detail', product_id=product.id) }}" class="btn btn-outline btn-sm">View Details</a>
+                        {% if current_user.is_authenticated and not current_user.is_admin %}
+                            <form method="POST" action="{{ url_for('cart.add_to_cart', product_id=product.id) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-primary btn-sm">Add to Cart</button>
+                            </form>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        <div style="text-align: center; padding-top: 20px;">
+            <a href="{{ url_for('shop.product_list') }}" class="btn btn-outline">View All Products</a>
+        </div>
+    </div>
+</section>
+{% endif %}
+
+<!-- Custom Blouse CTA -->
+<section style="background: var(--accent); padding: 50px 0; text-align: center;">
+    <div class="container">
+        <h2 class="section-title">Custom Blouse Designs</h2>
+        <p style="max-width: 600px; margin: 0 auto 25px; color: var(--text-light);">
+            Browse our collection of beautifully stitched blouse designs. Select your favourite design, provide your measurements, and we will stitch it perfectly for you.
+        </p>
+        <a href="{{ url_for('shop.custom_blouse') }}" class="btn btn-primary btn-lg">View Blouse Designs</a>
+    </div>
+</section>
+{% endblock %}

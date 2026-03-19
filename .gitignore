@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+*.db
+instance/
+static/images/products/*
+!static/images/products/.gitkeep
