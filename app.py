@@ -67,9 +67,32 @@ def create_app():
     # Create tables and default admin on first run
     with app.app_context():
         db.create_all()
+        _migrate_db()
         _create_default_admin()
 
     return app
+
+
+def _migrate_db():
+    """Add new columns to existing tables if they don't exist yet."""
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('product_images')]
+
+    # Detect database type for correct SQL syntax
+    db_url = str(db.engine.url)
+    is_postgres = 'postgresql' in db_url or 'postgres' in db_url
+    blob_type = 'BYTEA' if is_postgres else 'LONGBLOB'
+
+    with db.engine.connect() as conn:
+        if 'image_data' not in columns:
+            conn.execute(text(f'ALTER TABLE product_images ADD COLUMN image_data {blob_type}'))
+            conn.commit()
+            print('Migration: added image_data column')
+        if 'image_mimetype' not in columns:
+            conn.execute(text("ALTER TABLE product_images ADD COLUMN image_mimetype VARCHAR(50)"))
+            conn.commit()
+            print('Migration: added image_mimetype column')
 
 
 def _create_default_admin():
