@@ -32,13 +32,22 @@ def allowed_file(filename):
 
 
 def save_image(file):
-    """Save an uploaded image and return its relative path."""
+    """Save an uploaded image to disk and return (path, binary_data, mimetype).
+    Binary data is stored in DB so images persist on cloud platforms like Render.
+    """
     filename = secure_filename(file.filename)
-    # Add a unique prefix to avoid name collisions
     unique_name = f"{uuid.uuid4().hex[:8]}_{filename}"
     filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_name)
-    file.save(filepath)
-    return f"images/products/{unique_name}"
+
+    # Read file data for DB storage before saving to disk
+    file_data = file.read()
+    mimetype = file.content_type or 'image/jpeg'
+
+    # Save to disk (works locally; ephemeral on Render but DB has the backup)
+    with open(filepath, 'wb') as f:
+        f.write(file_data)
+
+    return f"images/products/{unique_name}", file_data, mimetype
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -187,15 +196,17 @@ def add_product():
         db.session.add(product)
         db.session.flush()  # Get the product ID before committing
 
-        # Handle multiple image uploads
+        # Handle multiple image uploads (store on disk + in DB)
         files = request.files.getlist('images')
         for i, file in enumerate(files):
             if file and file.filename and allowed_file(file.filename):
-                image_path = save_image(file)
+                image_path, file_data, mimetype = save_image(file)
                 img = ProductImage(
                     product_id=product.id,
                     image_path=image_path,
-                    is_primary=(i == 0)  # First image is primary
+                    is_primary=(i == 0),
+                    image_data=file_data,
+                    image_mimetype=mimetype
                 )
                 db.session.add(img)
 
@@ -227,12 +238,17 @@ def edit_product(product_id):
             flash('Invalid price or stock value.', 'danger')
             return render_template('admin/product_form.html', product=product, categories=all_categories)
 
-        # Handle new image uploads
+        # Handle new image uploads (store on disk + in DB)
         files = request.files.getlist('images')
         for file in files:
             if file and file.filename and allowed_file(file.filename):
-                image_path = save_image(file)
-                img = ProductImage(product_id=product.id, image_path=image_path)
+                image_path, file_data, mimetype = save_image(file)
+                img = ProductImage(
+                    product_id=product.id,
+                    image_path=image_path,
+                    image_data=file_data,
+                    image_mimetype=mimetype
+                )
                 db.session.add(img)
 
         db.session.commit()

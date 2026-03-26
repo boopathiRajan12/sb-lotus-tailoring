@@ -7,11 +7,15 @@
         <!-- Images Section -->
         <div class="product-images">
             {% if product.images %}
-                <img src="{{ url_for('static', filename=product.images[0].image_path) }}" alt="{{ product.name }}" class="product-main-img">
+                <img src="{{ url_for('serve_product_image', image_id=product.images[0].id) }}" alt="{{ product.name }}" class="product-main-img" id="main-image"
+                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='images/products/default.png') }}';">
                 {% if product.images|length > 1 %}
                     <div class="product-thumbnails">
                         {% for img in product.images %}
-                            <img src="{{ url_for('static', filename=img.image_path) }}" alt="Image {{ loop.index }}" class="{% if loop.first %}active{% endif %}">
+                            <img src="{{ url_for('serve_product_image', image_id=img.id) }}" alt="Image {{ loop.index }}"
+                                 class="{% if loop.first %}active{% endif %}"
+                                 onclick="document.getElementById('main-image').src=this.src; document.querySelectorAll('.product-thumbnails img').forEach(i=>i.classList.remove('active')); this.classList.add('active');"
+                                 onerror="this.onerror=null; this.src='{{ url_for('static', filename='images/products/default.png') }}';">
                         {% endfor %}
                     </div>
                 {% endif %}
@@ -22,7 +26,9 @@
 
         <!-- Product Info -->
         <div class="product-info">
-            <span class="category-tag" style="margin-bottom: 10px;">{{ product.category.name }}</span>
+            {% if product.category %}
+                <span class="category-tag" style="margin-bottom: 10px;">{{ product.category.name }}</span>
+            {% endif %}
             <h1>{{ product.name }}</h1>
             <div class="price">Rs. {{ "%.2f"|format(product.price) }}</div>
 
@@ -79,7 +85,8 @@
                     <button type="submit" class="btn btn-primary btn-lg" style="margin-top: 15px;">Add to Cart</button>
                 </form>
             {% elif not current_user.is_authenticated %}
-                <a href="{{ url_for('auth.login') }}" class="btn btn-primary btn-lg" style="margin-top: 15px;">Login to Order</a>
+                <a href="{{ url_for('auth.login') }}" class="btn btn-primary btn-lg" style="margin-top: 15px;">Login to Add to Cart</a>
+                <a href="{{ url_for('auth.register') }}" class="btn btn-outline btn-lg" style="margin-top: 15px;">Register</a>
             {% endif %}
         </div>
     </div>
@@ -92,11 +99,19 @@
                 {% for rp in related_products %}
                     <div class="product-card">
                         <a href="{{ url_for('shop.product_detail', product_id=rp.id) }}">
-                            <img src="{{ url_for('static', filename=rp.primary_image) }}" alt="{{ rp.name }}" class="product-card-img">
+                            {% if rp.images %}
+                                <img src="{{ url_for('serve_product_image', image_id=rp.images[0].id) }}" alt="{{ rp.name }}" class="product-card-img"
+                                     onerror="this.onerror=null; this.src='{{ url_for('static', filename='images/products/default.png') }}';">
+                            {% else %}
+                                <img src="{{ url_for('static', filename='images/products/default.png') }}" alt="{{ rp.name }}" class="product-card-img">
+                            {% endif %}
                         </a>
                         <div class="product-card-body">
                             <h3>{{ rp.name }}</h3>
                             <div class="price">Rs. {{ "%.2f"|format(rp.price) }}</div>
+                        </div>
+                        <div class="product-card-footer">
+                            <a href="{{ url_for('shop.product_detail', product_id=rp.id) }}" class="btn btn-outline btn-sm">View Details</a>
                         </div>
                     </div>
                 {% endfor %}
@@ -104,6 +119,7 @@
         </section>
     {% endif %}
 </div>
+{% endblock %}
 
 {% block scripts %}
 <script>

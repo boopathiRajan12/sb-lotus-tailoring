@@ -1,6 +1,7 @@
 """
 ProductImage model - supports multiple images per product.
-Images are stored as file paths in the static/images/products directory.
+Images are stored on disk (local dev) AND as binary in the database
+so they persist on cloud platforms like Render where the filesystem is ephemeral.
 """
 from datetime import datetime
 from .database import db
@@ -14,6 +15,9 @@ class ProductImage(db.Model):
     image_path = db.Column(db.String(300), nullable=False)
     is_primary = db.Column(db.Boolean, default=False)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Store image binary in DB for cloud deployments with ephemeral filesystems
+    image_data = db.Column(db.LargeBinary, nullable=True)
+    image_mimetype = db.Column(db.String(50), nullable=True)
 
     def __repr__(self):
         return f'<ProductImage {self.image_path}>'

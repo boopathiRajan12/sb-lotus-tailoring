@@ -29,10 +29,17 @@ class Product(db.Model):
 
     @property
     def primary_image(self):
-        """Return the first image or a default placeholder."""
+        """Return the first image path or a default placeholder."""
         if self.images:
             return self.images[0].image_path
         return 'images/products/default.png'
+
+    @property
+    def primary_image_id(self):
+        """Return the first image ID (for DB-served images on Render)."""
+        if self.images:
+            return self.images[0].id
+        return None
 
     def __repr__(self):
         return f'<Product {self.name}>'

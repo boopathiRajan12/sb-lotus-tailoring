@@ -11,10 +11,11 @@ This is the Flask application factory. It:
 Run this file to start the development server.
 """
 import os
-from flask import Flask
+from flask import Flask, send_file, abort
 from flask_login import LoginManager
 from config import Config
 from models import db, User
+from io import BytesIO
 
 # Initialize Flask-Login
 login_manager = LoginManager()
@@ -46,6 +47,22 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(shop_bp)
     app.register_blueprint(cart_bp)
+
+    # Route to serve images from DB when file doesn't exist on disk (Render fix)
+    @app.route('/product-image/<int:image_id>')
+    def serve_product_image(image_id):
+        from models import ProductImage
+        img = ProductImage.query.get_or_404(image_id)
+        if img.image_data:
+            return send_file(
+                BytesIO(img.image_data),
+                mimetype=img.image_mimetype or 'image/jpeg'
+            )
+        # If no DB data, try serving from disk
+        filepath = os.path.join(app.static_folder, img.image_path)
+        if os.path.exists(filepath):
+            return send_file(filepath)
+        abort(404)
 
     # Create tables and default admin on first run
     with app.app_context():
