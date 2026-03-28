@@ -3,12 +3,14 @@ Admin routes - dashboard, product management, category management, order managem
 All routes require admin login (is_admin=True).
 """
 import os
+import json
 import uuid
+from datetime import datetime
 from functools import wraps
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
-from models import db, Product, ProductImage, Category, Order
+from models import db, Product, ProductImage, Category, Order, User
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -55,18 +57,29 @@ def save_image(file):
 @admin_bp.route('/')
 @admin_required
 def dashboard():
-    """Admin dashboard with summary statistics."""
+    """Admin dashboard with summary statistics including user stats."""
     total_products = Product.query.count()
     total_categories = Category.query.count()
     total_orders = Order.query.count()
     pending_orders = Order.query.filter_by(status='pending').count()
     recent_orders = Order.query.order_by(Order.created_at.desc()).limit(5).all()
+
+    # User stats
+    total_users = User.query.filter_by(is_admin=False).count()
+    first_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    new_users_month = User.query.filter(
+        User.is_admin == False,
+        User.created_at >= first_of_month
+    ).count()
+
     return render_template('admin/dashboard.html',
                            total_products=total_products,
                            total_categories=total_categories,
                            total_orders=total_orders,
                            pending_orders=pending_orders,
-                           recent_orders=recent_orders)
+                           recent_orders=recent_orders,
+                           total_users=total_users,
+                           new_users_month=new_users_month)
 
 
 # ─── Category Management ────────────────────────────────────────────────────
@@ -306,9 +319,25 @@ def orders():
 @admin_bp.route('/orders/<int:order_id>')
 @admin_required
 def order_detail(order_id):
-    """View order details."""
+    """View order details with parsed measurements."""
     order = Order.query.get_or_404(order_id)
-    return render_template('admin/order_detail.html', order=order)
+
+    # Parse measurement JSON for each order item
+    measurement_labels = {
+        'bust': 'Bust', 'waist': 'Waist', 'shoulder': 'Shoulder',
+        'sleeve': 'Sleeve Length', 'blength': 'Blouse Length', 'armhole': 'Arm Hole'
+    }
+    for item in order.items:
+        if item.measurements:
+            try:
+                item._parsed_measurements = json.loads(item.measurements)
+            except (json.JSONDecodeError, TypeError):
+                item._parsed_measurements = None
+        else:
+            item._parsed_measurements = None
+
+    return render_template('admin/order_detail.html', order=order,
+                           measurement_labels=measurement_labels)
 
 
 @admin_bp.route('/orders/<int:order_id>/update-status', methods=['POST'])
@@ -321,3 +350,49 @@ def update_order_status(order_id):
     db.session.commit()
     flash(f'Order #{order.id} status updated to "{new_status}".', 'success')
     return redirect(url_for('admin.order_detail', order_id=order.id))
+
+
+# ─── User Management ──────────────────────────────────────────────────────
+
+@admin_bp.route('/users')
+@admin_required
+def users():
+    """List all registered users with stats."""
+    all_users = User.query.filter_by(is_admin=False).order_by(User.created_at.desc()).all()
+
+    # Calculate stats for each user
+    user_stats = []
+    for user in all_users:
+        orders = Order.query.filter_by(user_id=user.id).all()
+        total_orders = len(orders)
+        total_spent = sum(o.total_amount for o in orders)
+        user_stats.append({
+            'user': user,
+            'total_orders': total_orders,
+            'total_spent': total_spent
+        })
+
+    total_users = len(all_users)
+    first_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    new_users_month = User.query.filter(
+        User.is_admin == False,
+        User.created_at >= first_of_month
+    ).count()
+
+    return render_template('admin/users.html',
+                           user_stats=user_stats,
+                           total_users=total_users,
+                           new_users_month=new_users_month)
+
+
+@admin_bp.route('/users/<int:user_id>')
+@admin_required
+def user_detail(user_id):
+    """View individual user details and their orders."""
+    user = User.query.get_or_404(user_id)
+    orders = Order.query.filter_by(user_id=user.id).order_by(Order.created_at.desc()).all()
+    total_spent = sum(o.total_amount for o in orders)
+    return render_template('admin/user_detail.html',
+                           user=user,
+                           orders=orders,
+                           total_spent=total_spent)

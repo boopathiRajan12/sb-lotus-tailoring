@@ -54,11 +54,29 @@
         <tbody>
             {% for item in order.items %}
             <tr>
-                <td>{{ item.product.name }}</td>
+                <td>
+                    {{ item.product.name }}
+                    {% if item._parsed_measurements %}
+                        <span class="badge badge-custom">Custom</span>
+                    {% endif %}
+                </td>
                 <td>{{ item.quantity }}</td>
                 <td>Rs. {{ "%.2f"|format(item.price) }}</td>
                 <td>Rs. {{ "%.2f"|format(item.price * item.quantity) }}</td>
-                <td>{{ item.measurements or 'N/A' }}</td>
+                <td>
+                    {% if item._parsed_measurements %}
+                        <table class="measurement-detail-table">
+                            {% for key, value in item._parsed_measurements.items() %}
+                            <tr>
+                                <td class="measurement-label">{{ measurement_labels.get(key, key) }}</td>
+                                <td class="measurement-value">{{ value }} inches</td>
+                            </tr>
+                            {% endfor %}
+                        </table>
+                    {% else %}
+                        <span style="color: var(--text-muted);">Standard (No measurements)</span>
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
         </tbody>

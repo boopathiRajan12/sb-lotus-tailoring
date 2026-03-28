@@ -50,7 +50,8 @@
                     </div>
 
                     {% if product.is_custom_blouse %}
-                        <div class="measurement-form">
+                        <!-- Measurement Form (Step 1) -->
+                        <div class="measurement-form" id="measurement-form-section">
                             <h3>Enter Your Measurements (in inches)</h3>
                             <div class="measurement-grid">
                                 <div class="form-group">
@@ -79,10 +80,46 @@
                                 </div>
                             </div>
                             <input type="hidden" name="measurements" id="measurements-data">
+                            <button type="button" class="btn btn-secondary btn-lg" style="margin-top: 15px;" onclick="previewMeasurements()">Preview Measurements</button>
                         </div>
-                    {% endif %}
 
-                    <button type="submit" class="btn btn-primary btn-lg" style="margin-top: 15px;">Add to Cart</button>
+                        <!-- Measurement Preview (Step 2 - hidden by default) -->
+                        <div class="measurement-preview-card" id="measurement-preview" style="display: none;">
+                            <h3>Your Measurements</h3>
+                            <div class="measurement-preview-grid">
+                                <div class="measurement-preview-item">
+                                    <span class="preview-label">Bust</span>
+                                    <span class="preview-value" id="preview-bust">-</span>
+                                </div>
+                                <div class="measurement-preview-item">
+                                    <span class="preview-label">Waist</span>
+                                    <span class="preview-value" id="preview-waist">-</span>
+                                </div>
+                                <div class="measurement-preview-item">
+                                    <span class="preview-label">Shoulder</span>
+                                    <span class="preview-value" id="preview-shoulder">-</span>
+                                </div>
+                                <div class="measurement-preview-item">
+                                    <span class="preview-label">Sleeve Length</span>
+                                    <span class="preview-value" id="preview-sleeve">-</span>
+                                </div>
+                                <div class="measurement-preview-item">
+                                    <span class="preview-label">Blouse Length</span>
+                                    <span class="preview-value" id="preview-blength">-</span>
+                                </div>
+                                <div class="measurement-preview-item">
+                                    <span class="preview-label">Arm Hole</span>
+                                    <span class="preview-value" id="preview-armhole">-</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                                <button type="submit" class="btn btn-primary btn-lg">Confirm & Add to Cart</button>
+                                <button type="button" class="btn btn-outline btn-lg" onclick="editMeasurements()">Edit Measurements</button>
+                            </div>
+                        </div>
+                    {% else %}
+                        <button type="submit" class="btn btn-primary btn-lg" style="margin-top: 15px;">Add to Cart</button>
+                    {% endif %}
                 </form>
             {% elif not current_user.is_authenticated %}
                 <a href="{{ url_for('auth.login') }}" class="btn btn-primary btn-lg" style="margin-top: 15px;">Login to Add to Cart</a>
@@ -123,19 +160,56 @@
 
 {% block scripts %}
 <script>
-// Collect measurement fields into hidden input before form submit
+var measurementFields = ['bust', 'waist', 'shoulder', 'sleeve', 'blength', 'armhole'];
+var measurementLabels = {bust:'Bust', waist:'Waist', shoulder:'Shoulder', sleeve:'Sleeve Length', blength:'Blouse Length', armhole:'Arm Hole'};
+
+// Preview measurements before adding to cart
+function previewMeasurements() {
+    var bust = document.getElementById('bust');
+    var waist = document.getElementById('waist');
+    var shoulder = document.getElementById('shoulder');
+
+    // Validate required fields
+    if (!bust || !bust.value.trim() || !waist || !waist.value.trim() || !shoulder || !shoulder.value.trim()) {
+        alert('Please fill in at least Bust, Waist, and Shoulder measurements.');
+        return;
+    }
+
+    // Populate preview values and hidden field
+    var measurements = {};
+    measurementFields.forEach(function(f) {
+        var el = document.getElementById(f);
+        var val = el && el.value.trim() ? el.value.trim() + ' inches' : '-';
+        document.getElementById('preview-' + f).textContent = val;
+        if (el && el.value.trim()) { measurements[f] = el.value.trim(); }
+    });
+    document.getElementById('measurements-data').value = JSON.stringify(measurements);
+
+    // Show preview, hide form
+    document.getElementById('measurement-form-section').style.display = 'none';
+    document.getElementById('measurement-preview').style.display = 'block';
+}
+
+// Go back to edit measurements
+function editMeasurements() {
+    document.getElementById('measurement-form-section').style.display = 'block';
+    document.getElementById('measurement-preview').style.display = 'none';
+}
+
+// For non-custom products, ensure form submit works normally
 document.addEventListener('DOMContentLoaded', function() {
     var form = document.querySelector('form[action*="add_to_cart"]');
     if (form) {
         form.addEventListener('submit', function() {
-            var fields = ['bust', 'waist', 'shoulder', 'sleeve', 'blength', 'armhole'];
-            var measurements = {};
-            fields.forEach(function(f) {
-                var el = document.getElementById(f);
-                if (el && el.value.trim()) { measurements[f] = el.value.trim(); }
-            });
             var hidden = document.getElementById('measurements-data');
-            if (hidden) { hidden.value = JSON.stringify(measurements); }
+            if (hidden && !hidden.value) {
+                var measurements = {};
+                measurementFields.forEach(function(f) {
+                    var el = document.getElementById(f);
+                    if (el && el.value.trim()) { measurements[f] = el.value.trim(); }
+                });
+                hidden.value = JSON.stringify(measurements);
+            }
         });
     }
 });

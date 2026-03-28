@@ -1,0 +1,64 @@
+{% extends 'admin/base_admin.html' %}
+{% block title %}User Management - SB Lotus Tailoring{% endblock %}
+
+{% block admin_content %}
+<div class="page-header">
+    <h2>User Management</h2>
+</div>
+
+<!-- User Stats -->
+<div class="stat-cards" style="margin-bottom: 30px;">
+    <div class="stat-card">
+        <div class="stat-number">{{ total_users }}</div>
+        <div class="stat-label">Total Users</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ new_users_month }}</div>
+        <div class="stat-label">New This Month</div>
+    </div>
+</div>
+
+<!-- Users Table -->
+{% if user_stats %}
+<table class="admin-table">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Registered</th>
+            <th>Orders</th>
+            <th>Total Spent</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for us in user_stats %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="table-avatar">{{ us.user.username[0]|upper }}</span>
+                    <strong>{{ us.user.username }}</strong>
+                </div>
+            </td>
+            <td>{{ us.user.email }}</td>
+            <td>{{ us.user.phone or '-' }}</td>
+            <td>{{ us.user.created_at.strftime('%d %b %Y') }}</td>
+            <td>{{ us.total_orders }}</td>
+            <td>Rs. {{ "%.2f"|format(us.total_spent) }}</td>
+            <td>
+                <a href="{{ url_for('admin.user_detail', user_id=us.user.id) }}" class="btn btn-outline btn-sm">View</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <h3>No Users Yet</h3>
+    <p>Users will appear here once they register on the shop.</p>
+</div>
+{% endif %}
+{% endblock %}

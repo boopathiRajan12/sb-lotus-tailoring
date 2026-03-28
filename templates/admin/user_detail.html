@@ -1,0 +1,87 @@
+{% extends 'admin/base_admin.html' %}
+{% block title %}User: {{ user.username }} - SB Lotus Tailoring{% endblock %}
+
+{% block admin_content %}
+<div class="page-header">
+    <h2>User Details</h2>
+    <a href="{{ url_for('admin.users') }}" class="btn btn-outline btn-sm">Back to Users</a>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 25px;">
+    <!-- User Info Card -->
+    <div style="background: var(--bg-white); padding: 25px; border-radius: var(--radius); box-shadow: var(--shadow);">
+        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+            <span class="profile-avatar-large">{{ user.username[0]|upper }}</span>
+            <div>
+                <h3 style="margin: 0;">{{ user.username }}</h3>
+                <p style="color: var(--text-muted); margin: 0;">Member since {{ user.created_at.strftime('%d %b %Y') }}</p>
+            </div>
+        </div>
+        <div class="profile-info-grid">
+            <div class="profile-info-item">
+                <span class="profile-label">Email</span>
+                <span class="profile-value">{{ user.email }}</span>
+            </div>
+            <div class="profile-info-item">
+                <span class="profile-label">Phone</span>
+                <span class="profile-value">{{ user.phone or 'Not set' }}</span>
+            </div>
+            <div class="profile-info-item" style="grid-column: 1 / -1;">
+                <span class="profile-label">Address</span>
+                <span class="profile-value">{{ user.address or 'Not set' }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Stats Card -->
+    <div style="background: var(--bg-white); padding: 25px; border-radius: var(--radius); box-shadow: var(--shadow);">
+        <h3 style="margin-bottom: 20px; color: var(--primary);">Order Summary</h3>
+        <div class="stat-cards" style="grid-template-columns: 1fr 1fr;">
+            <div class="stat-card">
+                <div class="stat-number">{{ orders|length }}</div>
+                <div class="stat-label">Total Orders</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">Rs. {{ "%.0f"|format(total_spent) }}</div>
+                <div class="stat-label">Total Spent</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- User's Orders -->
+<div style="margin-top: 25px;">
+    <h3 style="margin-bottom: 15px; color: var(--primary);">Order History</h3>
+    {% if orders %}
+    <table class="admin-table">
+        <thead>
+            <tr>
+                <th>Order #</th>
+                <th>Date</th>
+                <th>Items</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for order in orders %}
+            <tr>
+                <td>#{{ order.id }}</td>
+                <td>{{ order.created_at.strftime('%d %b %Y, %I:%M %p') }}</td>
+                <td>{{ order.items|length }}</td>
+                <td>Rs. {{ "%.2f"|format(order.total_amount) }}</td>
+                <td><span class="badge badge-{{ order.status }}">{{ order.status|capitalize }}</span></td>
+                <td><a href="{{ url_for('admin.order_detail', order_id=order.id) }}" class="btn btn-outline btn-sm">View Order</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <h3>No Orders</h3>
+        <p>This user hasn't placed any orders yet.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

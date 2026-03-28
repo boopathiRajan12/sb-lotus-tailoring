@@ -31,6 +31,11 @@
                         </a></li>
                         <li><a href="{{ url_for('cart.my_orders') }}">My Orders</a></li>
                     {% endif %}
+                    <li>
+                        <a href="{{ url_for('auth.profile') }}" class="nav-profile-link" title="My Profile">
+                            <span class="nav-avatar">{{ current_user.username[0]|upper }}</span>
+                        </a>
+                    </li>
                     <li><a href="{{ url_for('auth.logout') }}">Logout</a></li>
                 {% else %}
                     <li><a href="{{ url_for('auth.login') }}">Login</a></li>

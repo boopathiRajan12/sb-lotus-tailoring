@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+{% block title %}My Profile - SB Lotus Tailoring{% endblock %}
+
+{% block content %}
+<div class="container" style="padding: 40px 0;">
+    <h2 class="section-title">My Profile</h2>
+
+    <div class="profile-layout">
+        <!-- Profile Info Card -->
+        <div class="profile-card">
+            <div class="profile-avatar-large">{{ current_user.username[0]|upper }}</div>
+            <h3 style="margin-bottom: 5px;">{{ current_user.username }}</h3>
+            <p style="color: var(--text-muted); margin-bottom: 20px;">Member since {{ current_user.created_at.strftime('%d %b %Y') }}</p>
+
+            <!-- Read-only Info -->
+            <div class="profile-info-grid" id="profile-info">
+                <div class="profile-info-item">
+                    <span class="profile-label">Email</span>
+                    <span class="profile-value">{{ current_user.email }}</span>
+                </div>
+                <div class="profile-info-item">
+                    <span class="profile-label">Phone</span>
+                    <span class="profile-value">{{ current_user.phone or 'Not set' }}</span>
+                </div>
+                <div class="profile-info-item" style="grid-column: 1 / -1;">
+                    <span class="profile-label">Address</span>
+                    <span class="profile-value">{{ current_user.address or 'Not set' }}</span>
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-outline" id="edit-toggle-btn" onclick="toggleEditForm()" style="margin-top: 15px;">Edit Profile</button>
+
+            <!-- Edit Form (hidden by default) -->
+            <form method="POST" action="{{ url_for('auth.edit_profile') }}" id="edit-form" style="display: none; margin-top: 20px;">
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" class="form-control" value="{{ current_user.email }}" required>
+                </div>
+                <div class="form-group">
+                    <label for="phone">Phone</label>
+                    <input type="text" id="phone" name="phone" class="form-control" value="{{ current_user.phone or '' }}" placeholder="Enter phone number">
+                </div>
+                <div class="form-group">
+                    <label for="address">Address</label>
+                    <textarea id="address" name="address" class="form-control" placeholder="Enter address">{{ current_user.address or '' }}</textarea>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <button type="button" class="btn btn-outline" onclick="toggleEditForm()">Cancel</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Order Summary -->
+        <div class="profile-orders">
+            <div class="profile-stats">
+                <div class="stat-card">
+                    <div class="stat-number">{{ user_orders|length }}</div>
+                    <div class="stat-label">Total Orders</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">Rs. {{ "%.0f"|format(total_spent) }}</div>
+                    <div class="stat-label">Total Spent</div>
+                </div>
+            </div>
+
+            <h3 style="margin: 25px 0 15px; color: var(--primary);">Recent Orders</h3>
+            {% if user_orders %}
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Order #</th>
+                            <th>Date</th>
+                            <th>Items</th>
+                            <th>Total</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in user_orders[:5] %}
+                        <tr>
+                            <td>#{{ order.id }}</td>
+                            <td>{{ order.created_at.strftime('%d %b %Y') }}</td>
+                            <td>{{ order.items|length }}</td>
+                            <td>Rs. {{ "%.2f"|format(order.total_amount) }}</td>
+                            <td><span class="badge badge-{{ order.status }}">{{ order.status|capitalize }}</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% if user_orders|length > 5 %}
+                    <a href="{{ url_for('cart.my_orders') }}" class="btn btn-outline btn-sm" style="margin-top: 15px;">View All Orders</a>
+                {% endif %}
+            {% else %}
+                <div class="empty-state">
+                    <h3>No orders yet</h3>
+                    <p>Start shopping to see your orders here.</p>
+                    <a href="{{ url_for('shop.product_list') }}" class="btn btn-primary" style="margin-top: 15px;">Browse Products</a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleEditForm() {
+    var info = document.getElementById('profile-info');
+    var form = document.getElementById('edit-form');
+    var btn = document.getElementById('edit-toggle-btn');
+    if (form.style.display === 'none') {
+        form.style.display = 'block';
+        info.style.display = 'none';
+        btn.style.display = 'none';
+    } else {
+        form.style.display = 'none';
+        info.style.display = 'grid';
+        btn.style.display = 'inline-block';
+    }
+}
+</script>
+{% endblock %}

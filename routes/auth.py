@@ -1,11 +1,11 @@
 """
-Authentication routes - handles user registration, login, and logout.
+Authentication routes - handles user registration, login, logout, and profile.
 Both regular users and admins use the same login page.
 Admin accounts are identified by the is_admin flag.
 """
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, login_required, current_user
-from models import db, User
+from models import db, User, Order
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -83,6 +83,41 @@ def login():
             flash('Invalid username or password.', 'danger')
 
     return render_template('auth/login.html')
+
+
+@auth_bp.route('/profile')
+@login_required
+def profile():
+    """View user profile with order summary."""
+    user_orders = Order.query.filter_by(user_id=current_user.id)\
+        .order_by(Order.created_at.desc()).all()
+    total_spent = sum(o.total_amount for o in user_orders)
+    return render_template('user/profile.html',
+                           user_orders=user_orders,
+                           total_spent=total_spent)
+
+
+@auth_bp.route('/profile/edit', methods=['POST'])
+@login_required
+def edit_profile():
+    """Update user profile details."""
+    email = request.form.get('email', '').strip()
+    phone = request.form.get('phone', '').strip()
+    address = request.form.get('address', '').strip()
+
+    # Check email uniqueness (if changed)
+    if email and email != current_user.email:
+        existing = User.query.filter_by(email=email).first()
+        if existing:
+            flash('Email already in use by another account.', 'danger')
+            return redirect(url_for('auth.profile'))
+        current_user.email = email
+
+    current_user.phone = phone
+    current_user.address = address
+    db.session.commit()
+    flash('Profile updated successfully!', 'success')
+    return redirect(url_for('auth.profile'))
 
 
 @auth_bp.route('/logout')

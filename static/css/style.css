@@ -774,6 +774,192 @@ select.form-control { cursor: pointer; }
     justify-content: center;
 }
 
+/* ── Profile Avatar (Navbar) ───────────────────────────────── */
+.nav-profile-link { padding: 4px 8px !important; }
+
+.nav-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--secondary);
+    color: var(--primary-dark);
+    font-weight: 700;
+    font-size: 0.9rem;
+    transition: var(--transition);
+}
+.nav-profile-link:hover .nav-avatar {
+    background: white;
+    color: var(--primary);
+}
+
+/* ── Profile Page ─────────────────────────────────────────── */
+.profile-layout {
+    display: grid;
+    grid-template-columns: 350px 1fr;
+    gap: 30px;
+    align-items: start;
+}
+
+.profile-card {
+    background: var(--bg-white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 30px;
+    text-align: center;
+}
+
+.profile-avatar-large {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 15px;
+}
+
+.profile-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    text-align: left;
+    margin-top: 15px;
+}
+
+.profile-info-item {
+    background: var(--accent);
+    padding: 12px 15px;
+    border-radius: var(--radius);
+}
+
+.profile-label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.profile-value {
+    display: block;
+    font-weight: 600;
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.profile-orders {
+    background: var(--bg-white);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 30px;
+}
+
+.profile-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+/* ── Table Avatar ─────────────────────────────────────────── */
+.table-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    font-weight: 700;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+/* ── Measurement Preview Card ─────────────────────────────── */
+.measurement-preview-card {
+    background: var(--bg-white);
+    border: 2px solid var(--primary);
+    border-radius: var(--radius);
+    padding: 25px;
+    margin: 20px 0;
+}
+
+.measurement-preview-card h3 {
+    color: var(--primary);
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+.measurement-preview-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.measurement-preview-item {
+    background: var(--accent);
+    padding: 12px 15px;
+    border-radius: var(--radius);
+    text-align: center;
+}
+
+.preview-label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.preview-value {
+    display: block;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+/* ── Admin Measurement Detail Table ───────────────────────── */
+.measurement-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.measurement-detail-table td {
+    padding: 4px 8px;
+    font-size: 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.measurement-detail-table .measurement-label {
+    color: var(--text-muted);
+    font-weight: 600;
+    width: 50%;
+}
+
+.measurement-detail-table .measurement-value {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+/* ── Custom Badge ─────────────────────────────────────────── */
+.badge-custom {
+    background: #E2D6F8;
+    color: #4A2480;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
 /* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 768px) {
     .nav-toggle { display: block; }
@@ -809,6 +995,9 @@ select.form-control { cursor: pointer; }
     .cart-table th, .cart-table td { padding: 10px; }
 
     .measurement-grid { grid-template-columns: 1fr; }
+    .measurement-preview-grid { grid-template-columns: 1fr; }
+    .profile-layout { grid-template-columns: 1fr; }
+    .profile-info-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {
