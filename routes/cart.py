@@ -1,32 +1,42 @@
 """
-Cart and checkout routes.
+Cart and checkout API.
 Handles add/remove/update cart items and order placement.
 """
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+import json
+from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from models import db, Product, CartItem, Order, OrderItem
 
-cart_bp = Blueprint('cart', __name__)
+cart_bp = Blueprint('cart', __name__, url_prefix='/api')
 
 
 @cart_bp.route('/cart')
 @login_required
 def view_cart():
-    """Display the user's shopping cart."""
+    """The current user's shopping cart."""
     cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
     total = sum(item.product.price * item.quantity for item in cart_items)
-    return render_template('user/cart.html', cart_items=cart_items, total=total)
+    return jsonify({
+        'cart_items': [item.to_dict() for item in cart_items],
+        'total': total,
+    })
 
 
-@cart_bp.route('/cart/add/<int:product_id>', methods=['POST'])
+@cart_bp.route('/cart/items', methods=['POST'])
 @login_required
-def add_to_cart(product_id):
+def add_to_cart():
     """Add a product to the cart (or increment quantity if already present)."""
+    data = request.get_json(silent=True)
+    if data is None:
+        data = request.form
+    product_id = int(data.get('product_id'))
     product = Product.query.get_or_404(product_id)
-    quantity = int(request.form.get('quantity', 1))
-    measurements = request.form.get('measurements', '').strip()
+    quantity = int(data.get('quantity', 1) or 1)
+    measurements = data.get('measurements')
+    if isinstance(measurements, dict):
+        measurements = json.dumps(measurements)
+    measurements = (measurements or '').strip() if isinstance(measurements, str) else measurements
 
-    # Check if this product is already in the cart
     existing = CartItem.query.filter_by(user_id=current_user.id, product_id=product_id).first()
     if existing:
         existing.quantity += quantity
@@ -42,114 +52,116 @@ def add_to_cart(product_id):
         db.session.add(cart_item)
 
     db.session.commit()
-    flash(f'"{product.name}" added to cart!', 'success')
-    return redirect(request.referrer or url_for('shop.product_list'))
+    return jsonify({'message': f'"{product.name}" added to cart!'}), 201
 
 
-@cart_bp.route('/cart/update/<int:item_id>', methods=['POST'])
+@cart_bp.route('/cart/items/<int:item_id>', methods=['PUT'])
 @login_required
 def update_cart(item_id):
     """Update the quantity of a cart item."""
     cart_item = CartItem.query.get_or_404(item_id)
 
-    # Ensure the item belongs to the current user
     if cart_item.user_id != current_user.id:
-        flash('Access denied.', 'danger')
-        return redirect(url_for('cart.view_cart'))
+        return jsonify({'error': 'Access denied.'}), 403
 
-    quantity = int(request.form.get('quantity', 1))
+    data = request.get_json(silent=True) or request.form
+    quantity = int(data.get('quantity', 1) or 1)
     if quantity < 1:
         db.session.delete(cart_item)
-        flash('Item removed from cart.', 'info')
-    else:
-        cart_item.quantity = quantity
-        flash('Cart updated.', 'success')
+        db.session.commit()
+        return jsonify({'message': 'Item removed from cart.'})
 
+    cart_item.quantity = quantity
     db.session.commit()
-    return redirect(url_for('cart.view_cart'))
+    return jsonify({'message': 'Cart updated.', 'cart_item': cart_item.to_dict()})
 
 
-@cart_bp.route('/cart/remove/<int:item_id>', methods=['POST'])
+@cart_bp.route('/cart/items/<int:item_id>', methods=['DELETE'])
 @login_required
 def remove_from_cart(item_id):
     """Remove an item from the cart."""
     cart_item = CartItem.query.get_or_404(item_id)
 
     if cart_item.user_id != current_user.id:
-        flash('Access denied.', 'danger')
-        return redirect(url_for('cart.view_cart'))
+        return jsonify({'error': 'Access denied.'}), 403
 
     db.session.delete(cart_item)
     db.session.commit()
-    flash('Item removed from cart.', 'info')
-    return redirect(url_for('cart.view_cart'))
+    return jsonify({'message': 'Item removed from cart.'})
 
 
-@cart_bp.route('/checkout', methods=['GET', 'POST'])
+@cart_bp.route('/checkout', methods=['GET'])
+@login_required
+def checkout_summary():
+    """Cart items + total for the checkout review screen."""
+    cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+    total = sum(item.product.price * item.quantity for item in cart_items)
+    return jsonify({
+        'cart_items': [item.to_dict() for item in cart_items],
+        'total': total,
+    })
+
+
+@cart_bp.route('/checkout', methods=['POST'])
 @login_required
 def checkout():
-    """Checkout page - review order and place it."""
+    """Place an order from the current cart."""
     cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
 
     if not cart_items:
-        flash('Your cart is empty.', 'info')
-        return redirect(url_for('shop.product_list'))
+        return jsonify({'error': 'Your cart is empty.'}), 400
+
+    data = request.get_json(silent=True) or request.form
+    shipping_address = (data.get('shipping_address') or '').strip()
+    phone = (data.get('phone') or '').strip()
+    notes = (data.get('notes') or '').strip()
+
+    if not shipping_address or not phone:
+        return jsonify({'error': 'Shipping address and phone number are required.'}), 400
 
     total = sum(item.product.price * item.quantity for item in cart_items)
 
-    if request.method == 'POST':
-        shipping_address = request.form.get('shipping_address', '').strip()
-        phone = request.form.get('phone', '').strip()
-        notes = request.form.get('notes', '').strip()
+    order = Order(
+        user_id=current_user.id,
+        total_amount=total,
+        shipping_address=shipping_address,
+        phone=phone,
+        notes=notes
+    )
+    db.session.add(order)
+    db.session.flush()
 
-        if not shipping_address or not phone:
-            flash('Shipping address and phone number are required.', 'danger')
-            return render_template('user/checkout.html', cart_items=cart_items, total=total)
-
-        # Create the order
-        order = Order(
-            user_id=current_user.id,
-            total_amount=total,
-            shipping_address=shipping_address,
-            phone=phone,
-            notes=notes
+    for cart_item in cart_items:
+        order_item = OrderItem(
+            order_id=order.id,
+            product_id=cart_item.product_id,
+            quantity=cart_item.quantity,
+            price=cart_item.product.price,
+            measurements=cart_item.measurements
         )
-        db.session.add(order)
-        db.session.flush()
+        db.session.add(order_item)
+        db.session.delete(cart_item)
 
-        # Move cart items to order items
-        for cart_item in cart_items:
-            order_item = OrderItem(
-                order_id=order.id,
-                product_id=cart_item.product_id,
-                quantity=cart_item.quantity,
-                price=cart_item.product.price,
-                measurements=cart_item.measurements
-            )
-            db.session.add(order_item)
-            db.session.delete(cart_item)
-
-        db.session.commit()
-        flash(f'Order #{order.id} placed successfully! We will contact you soon.', 'success')
-        return redirect(url_for('cart.order_confirmation', order_id=order.id))
-
-    return render_template('user/checkout.html', cart_items=cart_items, total=total)
+    db.session.commit()
+    return jsonify({
+        'message': f'Order #{order.id} placed successfully! We will contact you soon.',
+        'order': order.to_dict(),
+    }), 201
 
 
-@cart_bp.route('/order-confirmation/<int:order_id>')
+@cart_bp.route('/orders/<int:order_id>')
 @login_required
-def order_confirmation(order_id):
-    """Order confirmation page."""
+def order_detail(order_id):
+    """A single order belonging to the current user."""
     order = Order.query.get_or_404(order_id)
     if order.user_id != current_user.id:
-        flash('Access denied.', 'danger')
-        return redirect(url_for('shop.home'))
-    return render_template('user/order_confirmation.html', order=order)
+        return jsonify({'error': 'Access denied.'}), 403
+    return jsonify({'order': order.to_dict()})
 
 
-@cart_bp.route('/my-orders')
+@cart_bp.route('/orders')
 @login_required
 def my_orders():
-    """Show all orders for the current user."""
+    """All orders for the current user."""
     orders = Order.query.filter_by(user_id=current_user.id).order_by(Order.created_at.desc()).all()
-    return render_template('user/my_orders.html', orders=orders)
+    return jsonify({'orders': [o.to_dict() for o in orders]})

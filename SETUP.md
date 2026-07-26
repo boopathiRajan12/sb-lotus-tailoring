@@ -29,7 +29,7 @@ Open a terminal in the `sb_lotus_tailoring` folder:
 pip install -r requirements.txt
 ```
 
-### 4. Run the Application
+### 4. Run the Backend
 
 ```bash
 python app.py
@@ -38,7 +38,7 @@ python app.py
 This will:
 - Create all database tables automatically
 - Create a default admin account (username: `admin`, password: `admin123`)
-- Start the server at `http://localhost:5000`
+- Start the API server at `http://localhost:5000`
 
 ### 5. Load Sample Data (Optional)
 
@@ -48,6 +48,17 @@ python seed_data.py
 ```
 
 This adds sample categories and products to the database.
+
+### 6. Run the Frontend
+
+In a separate terminal:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+This starts the React app at `http://localhost:5173`, which proxies API calls to the Flask backend on port 5000. Use `http://localhost:5173` in your browser during development (not port 5000 - that's the API only).
 
 ## PyCharm Setup
 
@@ -61,10 +72,10 @@ This adds sample categories and products to the database.
 ## Usage
 
 ### Admin Login
-- URL: `http://localhost:5000/login`
+- URL: `http://localhost:5173/login`
 - Username: `admin`
 - Password: `admin123`
-- Admin dashboard: `http://localhost:5000/admin/`
+- Admin dashboard: `http://localhost:5173/admin`
 
 ### Admin Workflow
 1. Log in as admin
@@ -83,12 +94,12 @@ This adds sample categories and products to the database.
 ## Project Structure
 ```
 sb_lotus_tailoring/
-├── app.py                  # Main application entry point
+├── app.py                  # Main application entry point (JSON API + SPA static serving)
 ├── config.py               # Configuration (DB, uploads, etc.)
 ├── requirements.txt        # Python dependencies
 ├── database_setup.sql      # MySQL table creation scripts
 ├── seed_data.py            # Sample data loader
-├── models/                 # Database models (SQLAlchemy)
+├── models/                 # Database models (SQLAlchemy), each with a to_dict() serializer
 │   ├── __init__.py
 │   ├── database.py         # SQLAlchemy instance
 │   ├── user.py             # User model (customers + admin)
@@ -97,19 +108,19 @@ sb_lotus_tailoring/
 │   ├── product_image.py    # Multiple images per product
 │   ├── cart.py             # Shopping cart items
 │   └── order.py            # Orders and order items
-├── routes/                 # Flask route handlers
+├── routes/                 # Flask blueprints, all returning JSON under /api
 │   ├── __init__.py
-│   ├── auth.py             # Login, register, logout
-│   ├── admin.py            # Admin dashboard & CRUD
-│   ├── shop.py             # Public product pages
-│   └── cart.py             # Cart & checkout
-├── templates/              # HTML templates (Jinja2)
-│   ├── base.html           # Base layout with navbar & footer
-│   ├── auth/               # Login & register pages
-│   ├── user/               # Customer-facing pages
-│   └── admin/              # Admin dashboard pages
-└── static/                 # Static assets
-    ├── css/style.css       # Main stylesheet
-    ├── js/main.js          # Client-side JavaScript
-    └── images/products/    # Uploaded product images
+│   ├── auth.py             # /api/auth - login, register, logout, profile
+│   ├── admin.py            # /api/admin - dashboard & CRUD
+│   ├── shop.py             # /api - public product/category endpoints
+│   └── cart.py             # /api - cart & checkout
+├── static/images/products/ # Uploaded product images (also mirrored in DB)
+└── frontend/                # React (Vite) single-page app
+    ├── vite.config.js       # Dev server + proxy to Flask (:5000)
+    └── src/
+        ├── api/             # fetch client, format helpers
+        ├── context/         # AuthContext, ToastContext
+        ├── components/      # Navbar, Footer, ProductCard, route guards, etc.
+        ├── pages/           # customer-facing pages
+        └── pages/admin/     # admin dashboard pages
 ```

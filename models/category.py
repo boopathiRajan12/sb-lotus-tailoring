@@ -22,3 +22,14 @@ class Category(db.Model):
 
     def __repr__(self):
         return f'<Category {self.name}>'
+
+    def to_dict(self, include_product_count=False):
+        data = {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'category_type': self.category_type,
+        }
+        if include_product_count:
+            data['product_count'] = len(self.products)
+        return data

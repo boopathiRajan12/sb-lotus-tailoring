@@ -21,3 +21,11 @@ class ProductImage(db.Model):
 
     def __repr__(self):
         return f'<ProductImage {self.image_path}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'is_primary': self.is_primary,
+            'url': f'/product-image/{self.id}',
+        }

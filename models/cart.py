@@ -2,6 +2,7 @@
 CartItem model - tracks items in a user's shopping cart.
 Each row links a user to a product with a quantity.
 """
+import json
 from datetime import datetime
 from .database import db
 
@@ -19,3 +20,19 @@ class CartItem(db.Model):
 
     def __repr__(self):
         return f'<CartItem user={self.user_id} product={self.product_id} qty={self.quantity}>'
+
+    def to_dict(self):
+        parsed_measurements = None
+        if self.measurements:
+            try:
+                parsed_measurements = json.loads(self.measurements)
+            except (json.JSONDecodeError, TypeError):
+                parsed_measurements = None
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'product': self.product.to_dict() if self.product else None,
+            'quantity': self.quantity,
+            'measurements': parsed_measurements,
+            'subtotal': self.product.price * self.quantity if self.product else 0,
+        }

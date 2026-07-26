@@ -1,18 +1,17 @@
 """
-Admin routes - dashboard, product management, category management, order management.
+Admin API - dashboard, product management, category management, order management.
 All routes require admin login (is_admin=True).
 """
 import os
-import json
 import uuid
 from datetime import datetime
 from functools import wraps
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
+from flask import Blueprint, jsonify, request, current_app
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from models import db, Product, ProductImage, Category, Order, User
 
-admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
 
 def admin_required(f):
@@ -21,8 +20,7 @@ def admin_required(f):
     @login_required
     def decorated_function(*args, **kwargs):
         if not current_user.is_admin:
-            flash('Access denied. Admin only.', 'danger')
-            return redirect(url_for('shop.home'))
+            return jsonify({'error': 'Access denied. Admin only.'}), 403
         return f(*args, **kwargs)
     return decorated_function
 
@@ -41,11 +39,9 @@ def save_image(file):
     unique_name = f"{uuid.uuid4().hex[:8]}_{filename}"
     filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_name)
 
-    # Read file data for DB storage before saving to disk
     file_data = file.read()
     mimetype = file.content_type or 'image/jpeg'
 
-    # Save to disk (works locally; ephemeral on Render but DB has the backup)
     with open(filepath, 'wb') as f:
         f.write(file_data)
 
@@ -54,17 +50,16 @@ def save_image(file):
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
 
-@admin_bp.route('/')
+@admin_bp.route('/dashboard')
 @admin_required
 def dashboard():
-    """Admin dashboard with summary statistics including user stats."""
+    """Admin dashboard summary statistics including user stats."""
     total_products = Product.query.count()
     total_categories = Category.query.count()
     total_orders = Order.query.count()
     pending_orders = Order.query.filter_by(status='pending').count()
     recent_orders = Order.query.order_by(Order.created_at.desc()).limit(5).all()
 
-    # User stats
     total_users = User.query.filter_by(is_admin=False).count()
     first_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     new_users_month = User.query.filter(
@@ -72,14 +67,15 @@ def dashboard():
         User.created_at >= first_of_month
     ).count()
 
-    return render_template('admin/dashboard.html',
-                           total_products=total_products,
-                           total_categories=total_categories,
-                           total_orders=total_orders,
-                           pending_orders=pending_orders,
-                           recent_orders=recent_orders,
-                           total_users=total_users,
-                           new_users_month=new_users_month)
+    return jsonify({
+        'total_products': total_products,
+        'total_categories': total_categories,
+        'total_orders': total_orders,
+        'pending_orders': pending_orders,
+        'total_users': total_users,
+        'new_users_month': new_users_month,
+        'recent_orders': [o.to_dict(include_user=True) for o in recent_orders],
+    })
 
 
 # ─── Category Management ────────────────────────────────────────────────────
@@ -89,78 +85,65 @@ def dashboard():
 def categories():
     """List all categories."""
     all_categories = Category.query.order_by(Category.name).all()
-    return render_template('admin/categories.html', categories=all_categories)
+    return jsonify({'categories': [c.to_dict(include_product_count=True) for c in all_categories]})
 
 
-@admin_bp.route('/categories/add', methods=['GET', 'POST'])
+@admin_bp.route('/categories', methods=['POST'])
 @admin_required
 def add_category():
     """Add a new category."""
-    if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        description = request.form.get('description', '').strip()
-        category_type = request.form.get('category_type', 'stitching')
+    data = request.get_json(silent=True) or request.form
+    name = (data.get('name') or '').strip()
+    description = (data.get('description') or '').strip()
+    category_type = data.get('category_type') or 'stitching'
 
-        if not name:
-            flash('Category name is required.', 'danger')
-            return render_template('admin/category_form.html', category=None)
+    if not name:
+        return jsonify({'error': 'Category name is required.'}), 400
 
-        if Category.query.filter_by(name=name).first():
-            flash('Category already exists.', 'danger')
-            return render_template('admin/category_form.html', category=None)
+    if Category.query.filter_by(name=name).first():
+        return jsonify({'error': 'Category already exists.'}), 400
 
-        category = Category(name=name, description=description, category_type=category_type)
-        db.session.add(category)
-        db.session.commit()
-        flash(f'Category "{name}" added successfully!', 'success')
-        return redirect(url_for('admin.categories'))
-
-    return render_template('admin/category_form.html', category=None)
+    category = Category(name=name, description=description, category_type=category_type)
+    db.session.add(category)
+    db.session.commit()
+    return jsonify({'message': f'Category "{name}" added successfully!', 'category': category.to_dict()}), 201
 
 
-@admin_bp.route('/categories/edit/<int:category_id>', methods=['GET', 'POST'])
+@admin_bp.route('/categories/<int:category_id>', methods=['PUT'])
 @admin_required
 def edit_category(category_id):
     """Edit an existing category."""
     category = Category.query.get_or_404(category_id)
+    data = request.get_json(silent=True) or request.form
+    name = (data.get('name') or '').strip()
+    description = (data.get('description') or '').strip()
+    category_type = data.get('category_type') or 'stitching'
 
-    if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        description = request.form.get('description', '').strip()
-        category_type = request.form.get('category_type', 'stitching')
+    if not name:
+        return jsonify({'error': 'Category name is required.'}), 400
 
-        if not name:
-            flash('Category name is required.', 'danger')
-            return render_template('admin/category_form.html', category=category)
+    existing = Category.query.filter_by(name=name).first()
+    if existing and existing.id != category.id:
+        return jsonify({'error': 'Another category with this name already exists.'}), 400
 
-        existing = Category.query.filter_by(name=name).first()
-        if existing and existing.id != category.id:
-            flash('Another category with this name already exists.', 'danger')
-            return render_template('admin/category_form.html', category=category)
-
-        category.name = name
-        category.description = description
-        category.category_type = category_type
-        db.session.commit()
-        flash(f'Category "{name}" updated!', 'success')
-        return redirect(url_for('admin.categories'))
-
-    return render_template('admin/category_form.html', category=category)
+    category.name = name
+    category.description = description
+    category.category_type = category_type
+    db.session.commit()
+    return jsonify({'message': f'Category "{name}" updated!', 'category': category.to_dict()})
 
 
-@admin_bp.route('/categories/delete/<int:category_id>', methods=['POST'])
+@admin_bp.route('/categories/<int:category_id>', methods=['DELETE'])
 @admin_required
 def delete_category(category_id):
     """Delete a category (only if it has no products)."""
     category = Category.query.get_or_404(category_id)
     if category.products:
-        flash('Cannot delete category with existing products. Remove products first.', 'danger')
-        return redirect(url_for('admin.categories'))
+        return jsonify({'error': 'Cannot delete category with existing products. Remove products first.'}), 400
 
     db.session.delete(category)
     db.session.commit()
-    flash(f'Category "{category.name}" deleted.', 'success')
-    return redirect(url_for('admin.categories'))
+    return jsonify({'message': f'Category "{category.name}" deleted.'})
 
 
 # ─── Product Management ─────────────────────────────────────────────────────
@@ -170,114 +153,105 @@ def delete_category(category_id):
 def products():
     """List all products."""
     all_products = Product.query.order_by(Product.created_at.desc()).all()
-    return render_template('admin/products.html', products=all_products)
+    return jsonify({'products': [p.to_dict() for p in all_products]})
 
 
-@admin_bp.route('/products/add', methods=['GET', 'POST'])
+@admin_bp.route('/products/<int:product_id>')
+@admin_required
+def get_product(product_id):
+    """Fetch a single product for editing."""
+    product = Product.query.get_or_404(product_id)
+    return jsonify({'product': product.to_dict()})
+
+
+@admin_bp.route('/products', methods=['POST'])
 @admin_required
 def add_product():
     """Add a new product with images."""
-    all_categories = Category.query.order_by(Category.name).all()
+    name = (request.form.get('name') or '').strip()
+    description = (request.form.get('description') or '').strip()
+    price = request.form.get('price', '0')
+    category_id = request.form.get('category_id')
+    is_custom_blouse = request.form.get('is_custom_blouse') in ('on', 'true', '1')
+    stock = request.form.get('stock', '0')
 
-    if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        description = request.form.get('description', '').strip()
-        price = request.form.get('price', '0')
-        category_id = request.form.get('category_id')
-        is_custom_blouse = request.form.get('is_custom_blouse') == 'on'
-        stock = request.form.get('stock', '0')
+    if not name or not category_id:
+        return jsonify({'error': 'Product name and category are required.'}), 400
 
-        if not name or not category_id:
-            flash('Product name and category are required.', 'danger')
-            return render_template('admin/product_form.html', product=None, categories=all_categories)
+    try:
+        price = float(price)
+        stock = int(stock)
+    except ValueError:
+        return jsonify({'error': 'Invalid price or stock value.'}), 400
 
-        try:
-            price = float(price)
-            stock = int(stock)
-        except ValueError:
-            flash('Invalid price or stock value.', 'danger')
-            return render_template('admin/product_form.html', product=None, categories=all_categories)
+    product = Product(
+        name=name,
+        description=description,
+        price=price,
+        category_id=int(category_id),
+        is_custom_blouse=is_custom_blouse,
+        stock=stock
+    )
+    db.session.add(product)
+    db.session.flush()
 
-        product = Product(
-            name=name,
-            description=description,
-            price=price,
-            category_id=int(category_id),
-            is_custom_blouse=is_custom_blouse,
-            stock=stock
-        )
-        db.session.add(product)
-        db.session.flush()  # Get the product ID before committing
+    files = request.files.getlist('images')
+    for i, file in enumerate(files):
+        if file and file.filename and allowed_file(file.filename):
+            image_path, file_data, mimetype = save_image(file)
+            img = ProductImage(
+                product_id=product.id,
+                image_path=image_path,
+                is_primary=(i == 0),
+                image_data=file_data,
+                image_mimetype=mimetype
+            )
+            db.session.add(img)
 
-        # Handle multiple image uploads (store on disk + in DB)
-        files = request.files.getlist('images')
-        for i, file in enumerate(files):
-            if file and file.filename and allowed_file(file.filename):
-                image_path, file_data, mimetype = save_image(file)
-                img = ProductImage(
-                    product_id=product.id,
-                    image_path=image_path,
-                    is_primary=(i == 0),
-                    image_data=file_data,
-                    image_mimetype=mimetype
-                )
-                db.session.add(img)
-
-        db.session.commit()
-        flash(f'Product "{name}" added successfully!', 'success')
-        return redirect(url_for('admin.products'))
-
-    return render_template('admin/product_form.html', product=None, categories=all_categories)
+    db.session.commit()
+    return jsonify({'message': f'Product "{name}" added successfully!', 'product': product.to_dict()}), 201
 
 
-@admin_bp.route('/products/edit/<int:product_id>', methods=['GET', 'POST'])
+@admin_bp.route('/products/<int:product_id>', methods=['PUT'])
 @admin_required
 def edit_product(product_id):
     """Edit an existing product."""
     product = Product.query.get_or_404(product_id)
-    all_categories = Category.query.order_by(Category.name).all()
 
-    if request.method == 'POST':
-        product.name = request.form.get('name', '').strip()
-        product.description = request.form.get('description', '').strip()
-        product.category_id = int(request.form.get('category_id'))
-        product.is_custom_blouse = request.form.get('is_custom_blouse') == 'on'
-        product.is_active = request.form.get('is_active') == 'on'
+    product.name = (request.form.get('name') or '').strip()
+    product.description = (request.form.get('description') or '').strip()
+    product.category_id = int(request.form.get('category_id'))
+    product.is_custom_blouse = request.form.get('is_custom_blouse') in ('on', 'true', '1')
+    product.is_active = request.form.get('is_active') in ('on', 'true', '1')
 
-        try:
-            product.price = float(request.form.get('price', '0'))
-            product.stock = int(request.form.get('stock', '0'))
-        except ValueError:
-            flash('Invalid price or stock value.', 'danger')
-            return render_template('admin/product_form.html', product=product, categories=all_categories)
+    try:
+        product.price = float(request.form.get('price', '0'))
+        product.stock = int(request.form.get('stock', '0'))
+    except ValueError:
+        return jsonify({'error': 'Invalid price or stock value.'}), 400
 
-        # Handle new image uploads (store on disk + in DB)
-        files = request.files.getlist('images')
-        for file in files:
-            if file and file.filename and allowed_file(file.filename):
-                image_path, file_data, mimetype = save_image(file)
-                img = ProductImage(
-                    product_id=product.id,
-                    image_path=image_path,
-                    image_data=file_data,
-                    image_mimetype=mimetype
-                )
-                db.session.add(img)
+    files = request.files.getlist('images')
+    for file in files:
+        if file and file.filename and allowed_file(file.filename):
+            image_path, file_data, mimetype = save_image(file)
+            img = ProductImage(
+                product_id=product.id,
+                image_path=image_path,
+                image_data=file_data,
+                image_mimetype=mimetype
+            )
+            db.session.add(img)
 
-        db.session.commit()
-        flash(f'Product "{product.name}" updated!', 'success')
-        return redirect(url_for('admin.products'))
-
-    return render_template('admin/product_form.html', product=product, categories=all_categories)
+    db.session.commit()
+    return jsonify({'message': f'Product "{product.name}" updated!', 'product': product.to_dict()})
 
 
-@admin_bp.route('/products/delete/<int:product_id>', methods=['POST'])
+@admin_bp.route('/products/<int:product_id>', methods=['DELETE'])
 @admin_required
 def delete_product(product_id):
     """Delete a product and its images."""
     product = Product.query.get_or_404(product_id)
 
-    # Delete image files from disk
     for img in product.images:
         filepath = os.path.join(current_app.static_folder, img.image_path)
         if os.path.exists(filepath):
@@ -285,16 +259,14 @@ def delete_product(product_id):
 
     db.session.delete(product)
     db.session.commit()
-    flash(f'Product "{product.name}" deleted.', 'success')
-    return redirect(url_for('admin.products'))
+    return jsonify({'message': f'Product "{product.name}" deleted.'})
 
 
-@admin_bp.route('/products/delete-image/<int:image_id>', methods=['POST'])
+@admin_bp.route('/products/images/<int:image_id>', methods=['DELETE'])
 @admin_required
 def delete_product_image(image_id):
     """Delete a single product image."""
     img = ProductImage.query.get_or_404(image_id)
-    product_id = img.product_id
 
     filepath = os.path.join(current_app.static_folder, img.image_path)
     if os.path.exists(filepath):
@@ -302,8 +274,7 @@ def delete_product_image(image_id):
 
     db.session.delete(img)
     db.session.commit()
-    flash('Image deleted.', 'success')
-    return redirect(url_for('admin.edit_product', product_id=product_id))
+    return jsonify({'message': 'Image deleted.'})
 
 
 # ─── Order Management ───────────────────────────────────────────────────────
@@ -313,7 +284,7 @@ def delete_product_image(image_id):
 def orders():
     """View all orders."""
     all_orders = Order.query.order_by(Order.created_at.desc()).all()
-    return render_template('admin/orders.html', orders=all_orders)
+    return jsonify({'orders': [o.to_dict(include_user=True) for o in all_orders]})
 
 
 @admin_bp.route('/orders/<int:order_id>')
@@ -321,35 +292,19 @@ def orders():
 def order_detail(order_id):
     """View order details with parsed measurements."""
     order = Order.query.get_or_404(order_id)
-
-    # Parse measurement JSON for each order item
-    measurement_labels = {
-        'bust': 'Bust', 'waist': 'Waist', 'shoulder': 'Shoulder',
-        'sleeve': 'Sleeve Length', 'blength': 'Blouse Length', 'armhole': 'Arm Hole'
-    }
-    for item in order.items:
-        if item.measurements:
-            try:
-                item._parsed_measurements = json.loads(item.measurements)
-            except (json.JSONDecodeError, TypeError):
-                item._parsed_measurements = None
-        else:
-            item._parsed_measurements = None
-
-    return render_template('admin/order_detail.html', order=order,
-                           measurement_labels=measurement_labels)
+    return jsonify({'order': order.to_dict(include_user=True)})
 
 
-@admin_bp.route('/orders/<int:order_id>/update-status', methods=['POST'])
+@admin_bp.route('/orders/<int:order_id>/status', methods=['PUT'])
 @admin_required
 def update_order_status(order_id):
     """Update order status (pending, confirmed, stitching, ready, delivered)."""
     order = Order.query.get_or_404(order_id)
-    new_status = request.form.get('status', 'pending')
+    data = request.get_json(silent=True) or request.form
+    new_status = data.get('status') or 'pending'
     order.status = new_status
     db.session.commit()
-    flash(f'Order #{order.id} status updated to "{new_status}".', 'success')
-    return redirect(url_for('admin.order_detail', order_id=order.id))
+    return jsonify({'message': f'Order #{order.id} status updated to "{new_status}".', 'order': order.to_dict(include_user=True)})
 
 
 # ─── User Management ──────────────────────────────────────────────────────
@@ -360,16 +315,15 @@ def users():
     """List all registered users with stats."""
     all_users = User.query.filter_by(is_admin=False).order_by(User.created_at.desc()).all()
 
-    # Calculate stats for each user
     user_stats = []
     for user in all_users:
-        orders = Order.query.filter_by(user_id=user.id).all()
-        total_orders = len(orders)
-        total_spent = sum(o.total_amount for o in orders)
+        user_orders = Order.query.filter_by(user_id=user.id).all()
+        total_orders = len(user_orders)
+        total_spent = sum(o.total_amount for o in user_orders)
         user_stats.append({
-            'user': user,
+            'user': user.to_dict(),
             'total_orders': total_orders,
-            'total_spent': total_spent
+            'total_spent': total_spent,
         })
 
     total_users = len(all_users)
@@ -379,10 +333,11 @@ def users():
         User.created_at >= first_of_month
     ).count()
 
-    return render_template('admin/users.html',
-                           user_stats=user_stats,
-                           total_users=total_users,
-                           new_users_month=new_users_month)
+    return jsonify({
+        'user_stats': user_stats,
+        'total_users': total_users,
+        'new_users_month': new_users_month,
+    })
 
 
 @admin_bp.route('/users/<int:user_id>')
@@ -390,9 +345,10 @@ def users():
 def user_detail(user_id):
     """View individual user details and their orders."""
     user = User.query.get_or_404(user_id)
-    orders = Order.query.filter_by(user_id=user.id).order_by(Order.created_at.desc()).all()
-    total_spent = sum(o.total_amount for o in orders)
-    return render_template('admin/user_detail.html',
-                           user=user,
-                           orders=orders,
-                           total_spent=total_spent)
+    user_orders = Order.query.filter_by(user_id=user.id).order_by(Order.created_at.desc()).all()
+    total_spent = sum(o.total_amount for o in user_orders)
+    return jsonify({
+        'user': user.to_dict(),
+        'orders': [o.to_dict() for o in user_orders],
+        'total_spent': total_spent,
+    })

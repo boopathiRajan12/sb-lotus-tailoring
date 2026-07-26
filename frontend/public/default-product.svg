@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
+  <rect width="400" height="400" fill="#F5E6D3"/>
+  <g fill="#8B1A4A" opacity="0.5">
+    <path d="M160 90h80l20 40-40 20v160h-40V150l-40-20z"/>
+  </g>
+  <text x="200" y="330" font-family="Segoe UI, sans-serif" font-size="18" fill="#8B1A4A" text-anchor="middle" opacity="0.6">No Image</text>
+</svg>

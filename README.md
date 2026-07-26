@@ -1,6 +1,6 @@
 # SB LOTUS TAILORING SHOP
 
-A full-stack tailoring shop web application built with Flask, SQLAlchemy, and PostgreSQL/MySQL.
+A full-stack tailoring shop web application: a Flask + SQLAlchemy (PostgreSQL/MySQL/SQLite) JSON API backend with a React (Vite) single-page frontend.
 
 ## One-Click Deploy to Render (FREE)
 
@@ -27,9 +27,18 @@ A full-stack tailoring shop web application built with Flask, SQLAlchemy, and Po
 
 ## Local Setup
 
-1. Install MySQL and create database: `sb_lotus_tailoring`
-2. Update `config.py` with your MySQL credentials
-3. Run: `pip install -r requirements.txt`
-4. Run: `python app.py`
-5. Load sample data: `python seed_data.py`
-6. Open: http://localhost:5000
+The backend (Flask API, port 5000) and frontend (React/Vite, port 5173) run as two processes in development. Vite proxies `/api` and `/product-image` requests to Flask, so the browser only ever talks to `http://localhost:5173`.
+
+**Backend:**
+1. Install MySQL and create database `sb_lotus_tailoring` (optional — falls back to SQLite automatically if MySQL isn't running)
+2. Run: `pip install -r requirements.txt`
+3. Run: `python app.py`
+4. Load sample data (once): `python seed_data.py`
+
+**Frontend** (in a separate terminal):
+1. `cd frontend`
+2. `npm install`
+3. `npm run dev`
+4. Open: http://localhost:5173
+
+**Production build:** `build.sh` runs `npm run build` (output to `frontend/dist`) before starting Python; `app.py` serves that build directly, so only one process/port is needed in production (see `render.yaml`).

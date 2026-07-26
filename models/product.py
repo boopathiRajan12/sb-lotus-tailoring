@@ -43,3 +43,20 @@ class Product(db.Model):
 
     def __repr__(self):
         return f'<Product {self.name}>'
+
+    def to_dict(self, include_images=True):
+        data = {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'price': self.price,
+            'category_id': self.category_id,
+            'category': self.category.to_dict() if self.category else None,
+            'is_custom_blouse': self.is_custom_blouse,
+            'stock': self.stock,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+        if include_images:
+            data['images'] = [img.to_dict() for img in self.images]
+        return data

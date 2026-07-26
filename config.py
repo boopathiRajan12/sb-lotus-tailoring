@@ -3,6 +3,15 @@ Configuration settings for SB Lotus Tailoring Shop.
 Supports local MySQL and Render.com PostgreSQL deployment.
 """
 import os
+import socket
+
+def is_mysql_available(host='localhost', port=3306):
+    try:
+        # Quick check if port is open
+        with socket.create_connection((host, port), timeout=1.0):
+            return True
+    except OSError:
+        return False
 
 class Config:
     # Secret key for session management and CSRF protection
@@ -17,7 +26,16 @@ class Config:
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-    SQLALCHEMY_DATABASE_URI = DATABASE_URL or 'mysql+pymysql://root:Root@localhost:3306/sb_lotus_tailoring'
+    if DATABASE_URL:
+        SQLALCHEMY_DATABASE_URI = DATABASE_URL
+    else:
+        # Check if local MySQL is running, otherwise fallback to SQLite
+        if is_mysql_available():
+            SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:Root@localhost:3306/sb_lotus_tailoring'
+        else:
+            db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sb_lotus_tailoring.db')
+            SQLALCHEMY_DATABASE_URI = f'sqlite:///{db_path}'
+
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # File upload settings
