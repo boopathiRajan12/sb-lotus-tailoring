@@ -1,54 +1,67 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../api/client'
-import { formatCurrency } from '../api/format'
+import { useApi, usePageTitle } from '../hooks/useApi'
+import ProductCard from '../components/ProductCard'
+import Icon from '../components/Icon'
+import { EmptyState, ProductGridSkeleton } from '../components/ui'
 
-const DEFAULT_IMAGE = '/default-product.svg'
+const STEPS = [
+  { icon: 'image', title: 'Pick a design', text: 'Browse our stitched blouse designs and choose the one you like.' },
+  { icon: 'ruler', title: 'Add measurements', text: 'Enter your numbers once - we save them for future orders.' },
+  { icon: 'scissors', title: 'We stitch it', text: 'Your blouse is cut and finished to your exact measurements.' },
+  { icon: 'truck', title: 'Collect and pay', text: 'Pick it up or have it delivered. Pay when you receive it.' },
+]
 
 export default function CustomBlouse() {
-  const [designs, setDesigns] = useState([])
-
-  useEffect(() => {
-    api.get('/api/custom-blouse').then((data) => setDesigns(data.designs))
-  }, [])
+  usePageTitle('Custom Blouse Designs')
+  const { data, loading, error } = useApi('/api/custom-blouse')
+  const designs = data?.designs || []
 
   return (
-    <div className="container" style={{ padding: '40px 0' }}>
-      <h2 className="section-title">Custom Blouse Designs</h2>
-      <p style={{ textAlign: 'center', color: 'var(--text-light)', maxWidth: 600, margin: '-15px auto 30px' }}>
-        Browse our pre-stitched blouse designs. Select a design you love, provide your measurements, and we will stitch it perfectly for you.
-      </p>
+    <div className="container page">
+      <div className="text-center" style={{ maxWidth: 640, margin: '0 auto var(--sp-6)' }}>
+        <span className="eyebrow">Made to your measurements</span>
+        <h2 style={{ fontSize: 'var(--text-2xl)', marginBottom: 'var(--sp-3)' }}>
+          Custom Blouse Designs
+        </h2>
+        <p className="text-light">
+          Browse our pre-stitched designs, pick your favourite, and we will craft it to
+          fit you exactly. No two bodies are the same, and no two blouses should be either.
+        </p>
+      </div>
 
-      {designs.length > 0 ? (
-        <div className="blouse-grid">
-          {designs.map((design) => (
-            <div className="blouse-card" key={design.id}>
-              <Link to={`/products/${design.id}`}>
-                <img
-                  src={design.images[0]?.url || DEFAULT_IMAGE}
-                  alt={design.name}
-                  className="blouse-card-img"
-                  onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = DEFAULT_IMAGE }}
-                />
-              </Link>
-              <div className="blouse-card-body">
-                <h3>{design.name}</h3>
-                {design.description && (
-                  <p style={{ color: 'var(--text-light)', marginBottom: 10, fontSize: '0.9rem' }}>
-                    {design.description.slice(0, 100)}{design.description.length > 100 ? '...' : ''}
-                  </p>
-                )}
-                <div className="price" style={{ marginBottom: 15 }}>{formatCurrency(design.price)}</div>
-                <Link to={`/products/${design.id}`} className="btn btn-primary btn-sm">Select This Design</Link>
-              </div>
+      <div className="feature-strip" style={{ marginBottom: 'var(--sp-7)' }}>
+        {STEPS.map((step, index) => (
+          <div className="feature-item" key={step.title}>
+            <span className="feature-icon"><Icon name={step.icon} size={20} /></span>
+            <div>
+              <strong>{index + 1}. {step.title}</strong>
+              <p>{step.text}</p>
             </div>
+          </div>
+        ))}
+      </div>
+
+      {loading ? (
+        <ProductGridSkeleton count={6} />
+      ) : error ? (
+        <EmptyState
+          icon="alertCircle"
+          title="Couldn't load designs"
+          description="Something went wrong. Please refresh and try again."
+        />
+      ) : designs.length > 0 ? (
+        <div className="product-grid fade-in">
+          {designs.map((design) => (
+            <ProductCard key={design.id} product={design} />
           ))}
         </div>
       ) : (
-        <div className="empty-state">
-          <h3>No designs available yet</h3>
-          <p>Check back soon! We are adding new blouse designs regularly.</p>
-        </div>
+        <EmptyState
+          icon="shirt"
+          title="No designs available yet"
+          description="We are adding new blouse designs regularly. Check back soon, or visit the shop to discuss a custom piece."
+          action={<Link to="/products" className="btn btn-primary">Browse other products</Link>}
+        />
       )}
     </div>
   )

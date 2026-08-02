@@ -1,107 +1,224 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api } from '../api/client'
+import { useApi, useDebounced, usePageTitle } from '../hooks/useApi'
 import ProductCard from '../components/ProductCard'
 import Pagination from '../components/Pagination'
+import Icon from '../components/Icon'
+import { EmptyState, ProductGridSkeleton } from '../components/ui'
+
+const SORTS = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'price_low', label: 'Price: low to high' },
+  { value: 'price_high', label: 'Price: high to low' },
+  { value: 'rating', label: 'Top rated' },
+  { value: 'name', label: 'Name (A-Z)' },
+]
 
 export default function Products() {
+  usePageTitle('Products')
   const [searchParams, setSearchParams] = useSearchParams()
-  const [data, setData] = useState(null)
-  const [searchInput, setSearchInput] = useState(searchParams.get('q') || '')
 
   const category = searchParams.get('category') || ''
   const q = searchParams.get('q') || ''
   const page = searchParams.get('page') || '1'
+  const sort = searchParams.get('sort') || 'newest'
+  const minPrice = searchParams.get('min_price') || ''
+  const maxPrice = searchParams.get('max_price') || ''
+  const customOnly = searchParams.get('custom') === '1'
 
+  // Local mirrors so typing feels instant while the URL updates on a delay.
+  const [searchInput, setSearchInput] = useState(q)
+  const [priceDraft, setPriceDraft] = useState({ min: minPrice, max: maxPrice })
+  const debouncedSearch = useDebounced(searchInput, 400)
+
+  useEffect(() => { setSearchInput(q) }, [q])
+  useEffect(() => { setPriceDraft({ min: minPrice, max: maxPrice }) }, [minPrice, maxPrice])
+
+  // Push the debounced search term into the URL, resetting to page 1.
   useEffect(() => {
+    if (debouncedSearch === q) return
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      if (debouncedSearch.trim()) next.set('q', debouncedSearch.trim())
+      else next.delete('q')
+      next.delete('page')
+      return next
+    }, { replace: true })
+  }, [debouncedSearch, q, setSearchParams])
+
+  const queryString = useMemo(() => {
     const params = new URLSearchParams()
     if (category) params.set('category', category)
     if (q) params.set('q', q)
-    if (page) params.set('page', page)
-    api.get(`/api/products?${params.toString()}`).then(setData)
-  }, [category, q, page])
+    if (page !== '1') params.set('page', page)
+    if (sort !== 'newest') params.set('sort', sort)
+    if (minPrice) params.set('min_price', minPrice)
+    if (maxPrice) params.set('max_price', maxPrice)
+    if (customOnly) params.set('custom', '1')
+    return params.toString()
+  }, [category, q, page, sort, minPrice, maxPrice, customOnly])
 
-  useEffect(() => {
-    setSearchInput(q)
-  }, [q])
+  const { data, loading, error } = useApi(`/api/products?${queryString}`)
+
+  const patchParams = (patch, { resetPage = true } = {}) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      Object.entries(patch).forEach(([key, value]) => {
+        if (value === '' || value === null || value === undefined) next.delete(key)
+        else next.set(key, String(value))
+      })
+      if (resetPage) next.delete('page')
+      return next
+    })
+  }
 
   const buildHref = (nextPage) => {
-    const params = new URLSearchParams()
-    if (category) params.set('category', category)
-    if (q) params.set('q', q)
+    const params = new URLSearchParams(searchParams)
     if (nextPage && nextPage !== 1) params.set('page', String(nextPage))
+    else params.delete('page')
     const qs = params.toString()
     return qs ? `/products?${qs}` : '/products'
   }
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault()
-    const params = new URLSearchParams()
-    if (category) params.set('category', category)
-    if (searchInput.trim()) params.set('q', searchInput.trim())
-    setSearchParams(params)
+  const applyPrice = (event) => {
+    event.preventDefault()
+    patchParams({ min_price: priceDraft.min, max_price: priceDraft.max })
   }
 
-  if (!data) return null
+  const clearAll = () => setSearchParams(new URLSearchParams())
+
+  const categories = data?.categories || []
+  const products = data?.products || []
+  const total = data?.pagination?.total ?? 0
+  const hasFilters = Boolean(category || q || minPrice || maxPrice || customOnly || sort !== 'newest')
 
   return (
-    <div className="container" style={{ padding: '30px 0' }}>
-      <h2 className="section-title">Our Products</h2>
-
-      <div style={{ display: 'flex', gap: 15, flexWrap: 'wrap', marginBottom: 25, justifyContent: 'center' }}>
-        <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <input
-            type="text"
-            className="form-control"
-            style={{ maxWidth: 300 }}
-            placeholder="Search products..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-          <button type="submit" className="btn btn-primary btn-sm">Search</button>
-        </form>
+    <div className="container page">
+      <div className="page-header">
+        <div>
+          <h2>Our Products</h2>
+          <p>Browse every design we stitch, filter by service, price, or rating.</p>
+        </div>
+        {hasFilters && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={clearAll}>
+            <Icon name="x" size={15} /> Clear filters
+          </button>
+        )}
       </div>
 
-      <div className="category-cards" style={{ marginBottom: 30 }}>
-        <a
-          href={buildHref()}
-          className={`category-card ${!category ? 'active' : ''}`}
-          onClick={(e) => { e.preventDefault(); const p = new URLSearchParams(); if (q) p.set('q', q); setSearchParams(p) }}
+      <div className="toolbar">
+        <div className="search-box">
+          <div className="input-group">
+            <span className="input-group-icon"><Icon name="search" size={17} /></span>
+            <input
+              type="search"
+              className="form-control"
+              placeholder="Search designs, fabrics, descriptions..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              aria-label="Search products"
+            />
+          </div>
+        </div>
+
+        <form className="price-filter" onSubmit={applyPrice}>
+          <input
+            type="number"
+            min="0"
+            placeholder="Min Rs."
+            value={priceDraft.min}
+            onChange={(e) => setPriceDraft((p) => ({ ...p, min: e.target.value }))}
+            aria-label="Minimum price"
+          />
+          <span>to</span>
+          <input
+            type="number"
+            min="0"
+            placeholder="Max Rs."
+            value={priceDraft.max}
+            onChange={(e) => setPriceDraft((p) => ({ ...p, max: e.target.value }))}
+            aria-label="Maximum price"
+          />
+          <button type="submit" className="btn btn-subtle btn-sm">Go</button>
+        </form>
+
+        <select
+          className="form-control"
+          value={sort}
+          onChange={(e) => patchParams({ sort: e.target.value })}
+          aria-label="Sort products"
         >
-          All
-        </a>
-        {data.categories.map((cat) => (
-          <a
+          {SORTS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+
+        <label className="chip" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={customOnly}
+            onChange={(e) => patchParams({ custom: e.target.checked ? '1' : '' })}
+            style={{ accentColor: 'var(--primary)' }}
+          />
+          Custom only
+        </label>
+
+        <span className="spacer" />
+        <span className="toolbar-results">
+          {loading ? 'Loading...' : `${total} product${total === 1 ? '' : 's'}`}
+        </span>
+      </div>
+
+      <div className="chip-row" style={{ marginBottom: 'var(--sp-5)' }}>
+        <button
+          type="button"
+          className={`chip ${!category ? 'active' : ''}`}
+          onClick={() => patchParams({ category: '' })}
+        >
+          All services
+        </button>
+        {categories.map((cat) => (
+          <button
             key={cat.id}
-            href={buildHref()}
-            className={`category-card ${String(category) === String(cat.id) ? 'active' : ''}`}
-            onClick={(e) => {
-              e.preventDefault()
-              const p = new URLSearchParams()
-              p.set('category', cat.id)
-              if (q) p.set('q', q)
-              setSearchParams(p)
-            }}
+            type="button"
+            className={`chip ${String(category) === String(cat.id) ? 'active' : ''}`}
+            onClick={() => patchParams({ category: cat.id })}
           >
             {cat.name}
-          </a>
+          </button>
         ))}
       </div>
 
-      {data.products.length > 0 ? (
+      {loading ? (
+        <ProductGridSkeleton count={8} />
+      ) : error ? (
+        <EmptyState
+          icon="alertCircle"
+          title="Couldn't load products"
+          description="Something went wrong fetching the catalogue. Please refresh and try again."
+        />
+      ) : products.length > 0 ? (
         <>
-          <div className="product-grid">
-            {data.products.map((product) => (
+          <div className="product-grid fade-in">
+            {products.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
           <Pagination pagination={data.pagination} buildHref={buildHref} />
         </>
       ) : (
-        <div className="empty-state">
-          <h3>No products found</h3>
-          <p>Try a different search or browse all categories.</p>
-        </div>
+        <EmptyState
+          icon="search"
+          title="No products match those filters"
+          description="Try a different search term, widen the price range, or browse all categories."
+          action={
+            hasFilters && (
+              <button type="button" className="btn btn-primary" onClick={clearAll}>
+                Clear all filters
+              </button>
+            )
+          }
+        />
       )}
     </div>
   )

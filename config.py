@@ -5,6 +5,7 @@ Supports local MySQL and Render.com PostgreSQL deployment.
 import os
 import socket
 
+
 def is_mysql_available(host='localhost', port=3306):
     try:
         # Quick check if port is open
@@ -12,6 +13,14 @@ def is_mysql_available(host='localhost', port=3306):
             return True
     except OSError:
         return False
+
+
+def _env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
 
 class Config:
     # Secret key for session management and CSRF protection
@@ -37,8 +46,24 @@ class Config:
             SQLALCHEMY_DATABASE_URI = f'sqlite:///{db_path}'
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # Recycle connections before managed Postgres drops them out from under us.
+    SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True, 'pool_recycle': 280}
+
+    # ── Session cookie hardening ─────────────────────────────────────────────
+    # The API authenticates with a session cookie, so these matter. `Lax` still
+    # allows normal top-level navigation into the SPA while blocking the
+    # cross-site POSTs that would otherwise be CSRF-able.
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    # Secure cookies require HTTPS - on by default in production (Render sets
+    # RENDER), off locally so plain-HTTP dev still works.
+    SESSION_COOKIE_SECURE = _env_flag('SESSION_COOKIE_SECURE', default=bool(os.environ.get('RENDER')))
+    PERMANENT_SESSION_LIFETIME = 60 * 60 * 24 * 14  # 14 days
 
     # File upload settings
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'images', 'products')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB max upload size
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
+    # Pagination
+    PRODUCTS_PER_PAGE = 12

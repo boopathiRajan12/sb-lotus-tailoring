@@ -1,39 +1,90 @@
+import { Link } from 'react-router-dom'
+import { usePageTitle } from '../hooks/useApi'
+import Icon from '../components/Icon'
+
+const SERVICES = [
+  { icon: 'shirt', title: 'Blouse Stitching', text: 'Custom-fitted blouses in any design (Aari work not offered yet).' },
+  { icon: 'users', title: 'School Uniforms', text: 'Uniforms for all grades, stitched to school specification.' },
+  { icon: 'shirt', title: 'Sudithar Stitching', text: 'Traditional sudithars, cut and finished to your measurements.' },
+  { icon: 'shirt', title: 'Tops', text: 'Modern tops in the cut and length you want.' },
+  { icon: 'ruler', title: 'Pants', text: 'All types of pants, hemmed to your exact leg length.' },
+  { icon: 'sparkles', title: 'Pavadai & Sattai', text: 'Traditional two-piece sets for every occasion.' },
+]
+
+const COMING_SOON = [
+  'Sarees Collection',
+  'Ready-made Pavadai',
+  'Ready-made Blouse',
+  'Blouse Lining',
+  'Top Lining',
+  'Ready-made Sudithar',
+]
+
 export default function About() {
+  usePageTitle('About Us')
+
   return (
-    <div className="container" style={{ padding: '40px 0' }}>
-      <h2 className="section-title">About SB Lotus Tailoring Shop</h2>
-
-      <div style={{ maxWidth: 800, margin: '0 auto', background: 'var(--bg-white)', padding: 40, borderRadius: 'var(--radius)', boxShadow: 'var(--shadow)' }}>
-        <h3 style={{ color: 'var(--primary)', marginBottom: 15 }}>Our Story</h3>
-        <p style={{ color: 'var(--text-light)', lineHeight: 1.8, marginBottom: 25 }}>
-          SB Lotus Tailoring Shop is dedicated to providing high-quality stitching and tailoring services. We specialise in blouse stitching, school uniforms, sudithars, tops, pants, and traditional dresses like Pavadai &amp; Sattai. Every garment is crafted with precision and care to ensure a perfect fit.
+    <div className="container page">
+      <div className="text-center" style={{ maxWidth: 640, margin: '0 auto var(--sp-7)' }}>
+        <span className="eyebrow">Our story</span>
+        <h2 style={{ fontSize: 'var(--text-2xl)', marginBottom: 'var(--sp-3)' }}>
+          About SB Lotus Tailoring Shop
+        </h2>
+        <p className="text-light">
+          We are dedicated to high-quality stitching and tailoring. Every garment is cut and
+          finished with precision and care, so it fits the person wearing it - not a generic
+          size chart.
         </p>
-
-        <h3 style={{ color: 'var(--primary)', marginBottom: 15 }}>Our Services</h3>
-        <ul style={{ color: 'var(--text-light)', lineHeight: 2, paddingLeft: 20, marginBottom: 25 }}>
-          <li>Blouse Stitching (without Aari work currently)</li>
-          <li>School Uniforms Stitching</li>
-          <li>Sudithar Stitching</li>
-          <li>Tops Stitching</li>
-          <li>Pants Stitching</li>
-          <li>Traditional Pavadai &amp; Sattai</li>
-        </ul>
-
-        <h3 style={{ color: 'var(--primary)', marginBottom: 15 }}>Coming Soon</h3>
-        <ul style={{ color: 'var(--text-light)', lineHeight: 2, paddingLeft: 20, marginBottom: 25 }}>
-          <li>Sarees Collection</li>
-          <li>Ready-made Pavadai</li>
-          <li>Ready-made Blouse</li>
-          <li>Blouse Lining</li>
-          <li>Top Lining</li>
-          <li>Ready-made Sudithar</li>
-        </ul>
-
-        <div style={{ background: 'var(--accent)', padding: 20, borderRadius: 'var(--radius)', textAlign: 'center' }}>
-          <h3 style={{ color: 'var(--primary)', marginBottom: 10 }}>Visit Us</h3>
-          <p style={{ color: 'var(--text-light)' }}>Come to our shop for measurements and consultations. We ensure every stitch is perfect!</p>
-        </div>
       </div>
+
+      <section className="section-sm">
+        <h3 className="section-title">What We Do</h3>
+        <div className="category-grid">
+          {SERVICES.map((service) => (
+            <div className="category-tile" key={service.title} style={{ cursor: 'default' }}>
+              <span className="tile-icon"><Icon name={service.icon} size={22} /></span>
+              <strong>{service.title}</strong>
+              <small>{service.text}</small>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="section-sm">
+        <div className="card">
+          <h3 style={{ marginBottom: 'var(--sp-2)' }}>Coming Soon</h3>
+          <p className="text-muted text-sm" style={{ marginBottom: 'var(--sp-4)' }}>
+            We are expanding into ready-made pieces alongside our stitching services.
+          </p>
+          <div className="chip-row">
+            {COMING_SOON.map((item) => (
+              <span className="chip" key={item} style={{ cursor: 'default' }}>
+                <Icon name="clock" size={13} /> {item}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="section-sm">
+        <div className="card text-center" style={{ padding: 'var(--sp-7) var(--sp-5)' }}>
+          <div
+            className="feature-icon"
+            style={{ margin: '0 auto var(--sp-4)', width: 52, height: 52 }}
+          >
+            <Icon name="mapPin" size={24} />
+          </div>
+          <h3 style={{ marginBottom: 'var(--sp-2)' }}>Visit Us</h3>
+          <p className="text-light" style={{ maxWidth: 480, margin: '0 auto var(--sp-5)' }}>
+            Come to the shop for measurements and consultations. We will talk through
+            fabric, fit, and finishing before a single stitch is made.
+          </p>
+          <div className="row" style={{ justifyContent: 'center' }}>
+            <Link to="/products" className="btn btn-primary">Browse products</Link>
+            <Link to="/custom-blouse" className="btn btn-outline">Custom blouse designs</Link>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }

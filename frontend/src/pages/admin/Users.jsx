@@ -1,73 +1,130 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '../../api/client'
-import { formatCurrency, formatDate } from '../../api/format'
+import { useApi, useDebounced, usePageTitle } from '../../hooks/useApi'
+import { formatCurrency, formatDate, initials } from '../../api/format'
+import Icon from '../../components/Icon'
+import { CardsSkeleton, EmptyState, TableSkeleton } from '../../components/ui'
 
 export default function Users() {
-  const [data, setData] = useState(null)
+  usePageTitle('Admin Customers')
+  const [search, setSearch] = useState('')
+  const debouncedSearch = useDebounced(search, 400)
 
-  useEffect(() => {
-    api.get('/api/admin/users').then(setData)
-  }, [])
+  const query = useMemo(() => {
+    const params = new URLSearchParams()
+    if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim())
+    return params.toString()
+  }, [debouncedSearch])
 
-  if (!data) return null
+  const { data, loading, error } = useApi(`/api/admin/users?${query}`)
+  const stats = data?.user_stats || []
 
   return (
     <>
       <div className="page-header">
-        <h2>User Management</h2>
-      </div>
-
-      <div className="stat-cards" style={{ marginBottom: 30 }}>
-        <div className="stat-card">
-          <div className="stat-number">{data.total_users}</div>
-          <div className="stat-label">Total Users</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-number">{data.new_users_month}</div>
-          <div className="stat-label">New This Month</div>
+        <div>
+          <h2>Customers</h2>
+          <p>Everyone registered on the shop, with their order history.</p>
         </div>
       </div>
 
-      {data.user_stats.length > 0 ? (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Username</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>Registered</th>
-              <th>Orders</th>
-              <th>Total Spent</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.user_stats.map((us, idx) => (
-              <tr key={us.user.id}>
-                <td>{idx + 1}</td>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="table-avatar">{us.user.username[0].toUpperCase()}</span>
-                    <strong>{us.user.username}</strong>
-                  </div>
-                </td>
-                <td>{us.user.email}</td>
-                <td>{us.user.phone || '-'}</td>
-                <td>{formatDate(us.user.created_at)}</td>
-                <td>{us.total_orders}</td>
-                <td>{formatCurrency(us.total_spent)}</td>
-                <td><Link to={`/admin/users/${us.user.id}`} className="btn btn-outline btn-sm">View</Link></td>
+      {loading ? <CardsSkeleton count={3} height={100} /> : (
+        <div className="stat-cards">
+          <div className="stat-card">
+            <div className="stat-head">
+              <span className="stat-icon"><Icon name="users" size={17} /></span>
+            </div>
+            <div className="stat-number">{data.total_users}</div>
+            <div className="stat-label">Total customers</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-head">
+              <span className="stat-icon tone-success"><Icon name="sparkles" size={17} /></span>
+            </div>
+            <div className="stat-number">{data.new_users_month}</div>
+            <div className="stat-label">New this month</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-head">
+              <span className="stat-icon tone-warning"><Icon name="slash" size={17} /></span>
+            </div>
+            <div className="stat-number">{data.suspended_users}</div>
+            <div className="stat-label">Suspended</div>
+          </div>
+        </div>
+      )}
+
+      <div className="toolbar">
+        <div className="search-box">
+          <div className="input-group">
+            <span className="input-group-icon"><Icon name="search" size={17} /></span>
+            <input
+              type="search"
+              className="form-control"
+              placeholder="Search by username or email"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search customers"
+            />
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <TableSkeleton rows={6} cols={6} />
+      ) : error ? (
+        <EmptyState icon="alertCircle" title="Couldn't load customers" description="Please refresh and try again." />
+      ) : stats.length > 0 ? (
+        <div className="table-wrap fade-in">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Registered</th>
+                <th className="num">Orders</th>
+                <th className="num">Total spent</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <div className="empty-state">
-          <h3>No Users Yet</h3>
-          <p>Users will appear here once they register on the shop.</p>
+            </thead>
+            <tbody>
+              {stats.map(({ user, total_orders: totalOrders, total_spent: totalSpent }) => (
+                <tr key={user.id}>
+                  <td>
+                    <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+                      <span className="table-avatar">{initials(user.username)}</span>
+                      <div>
+                        <strong>{user.username}</strong>
+                        {!user.is_active_account && (
+                          <div><span className="badge badge-cancelled">Suspended</span></div>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td>{user.email}</td>
+                  <td>{user.phone || '-'}</td>
+                  <td>{formatDate(user.created_at)}</td>
+                  <td className="num">{totalOrders}</td>
+                  <td className="num">{formatCurrency(totalSpent)}</td>
+                  <td>
+                    <Link to={`/admin/users/${user.id}`} className="btn btn-outline btn-sm">View</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      ) : (
+        <EmptyState
+          icon="users"
+          title={debouncedSearch ? 'No customers match that search' : 'No customers yet'}
+          description={
+            debouncedSearch
+              ? 'Try a different username or email.'
+              : 'Customers appear here once they register on the shop.'
+          }
+        />
       )}
     </>
   )

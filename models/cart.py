@@ -35,4 +35,9 @@ class CartItem(db.Model):
             'quantity': self.quantity,
             'measurements': parsed_measurements,
             'subtotal': self.product.price * self.quantity if self.product else 0,
+            # Surfaced in the cart so a customer knows before checkout that a
+            # line has become unavailable or exceeds what's in stock.
+            'available': bool(self.product and self.product.is_active),
+            'stock_shortfall': max(0, self.quantity - self.product.stock)
+                if self.product and not self.product.is_made_to_order else 0,
         }

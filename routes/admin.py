@@ -1,28 +1,29 @@
 """
-Admin API - dashboard, product management, category management, order management.
+Admin API - dashboard, product, category, order, user, and review management.
 All routes require admin login (is_admin=True).
 """
+import csv
+import io
 import os
 import uuid
-from datetime import datetime
-from functools import wraps
-from flask import Blueprint, jsonify, request, current_app
-from flask_login import login_required, current_user
+from datetime import datetime, timedelta
+
+from flask import Blueprint, jsonify, request, current_app, Response
+from flask_login import current_user
+from sqlalchemy import func, or_
+from sqlalchemy.orm import joinedload
 from werkzeug.utils import secure_filename
-from models import db, Product, ProductImage, Category, Order, User
+
+from models import (
+    db, Product, ProductImage, Category, Order, OrderItem, User, Review,
+    ORDER_STATUSES, ORDER_FLOW,
+)
+from .helpers import payload, get_str, get_int, get_float, get_bool, error, admin_required
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
-
-def admin_required(f):
-    """Decorator: ensure the current user is an admin."""
-    @wraps(f)
-    @login_required
-    def decorated_function(*args, **kwargs):
-        if not current_user.is_admin:
-            return jsonify({'error': 'Access denied. Admin only.'}), 403
-        return f(*args, **kwargs)
-    return decorated_function
+# Statuses that count as realised revenue.
+REVENUE_STATUSES = tuple(s for s in ORDER_FLOW)
 
 
 def allowed_file(filename):
@@ -33,7 +34,9 @@ def allowed_file(filename):
 
 def save_image(file):
     """Save an uploaded image to disk and return (path, binary_data, mimetype).
-    Binary data is stored in DB so images persist on cloud platforms like Render.
+
+    Binary data is stored in the DB too, so images survive on cloud platforms
+    like Render where the filesystem is ephemeral.
     """
     filename = secure_filename(file.filename)
     unique_name = f"{uuid.uuid4().hex[:8]}_{filename}"
@@ -48,32 +51,115 @@ def save_image(file):
     return f"images/products/{unique_name}", file_data, mimetype
 
 
-# ─── Dashboard ───────────────────────────────────────────────────────────────
+def _month_start(offset=0):
+    """First instant of the month, `offset` months back from today."""
+    now = datetime.utcnow()
+    year, month = now.year, now.month - offset
+    while month <= 0:
+        month += 12
+        year -= 1
+    return datetime(year, month, 1)
+
+
+# ─── Dashboard & Analytics ───────────────────────────────────────────────────
 
 @admin_bp.route('/dashboard')
 @admin_required
 def dashboard():
-    """Admin dashboard summary statistics including user stats."""
+    """Headline stats, revenue trend, status mix, and best sellers."""
     total_products = Product.query.count()
+    active_products = Product.query.filter_by(is_active=True).count()
     total_categories = Category.query.count()
     total_orders = Order.query.count()
     pending_orders = Order.query.filter_by(status='pending').count()
-    recent_orders = Order.query.order_by(Order.created_at.desc()).limit(5).all()
+    in_progress = Order.query.filter(Order.status.in_(('confirmed', 'stitching'))).count()
 
     total_users = User.query.filter_by(is_admin=False).count()
-    first_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    first_of_month = _month_start()
     new_users_month = User.query.filter(
-        User.is_admin == False,
-        User.created_at >= first_of_month
+        User.is_admin.is_(False), User.created_at >= first_of_month
     ).count()
+
+    revenue_filter = Order.status.in_(REVENUE_STATUSES)
+    total_revenue = db.session.query(func.coalesce(func.sum(Order.total_amount), 0.0)) \
+        .filter(revenue_filter).scalar() or 0.0
+    month_revenue = db.session.query(func.coalesce(func.sum(Order.total_amount), 0.0)) \
+        .filter(revenue_filter, Order.created_at >= first_of_month).scalar() or 0.0
+    last_month_revenue = db.session.query(func.coalesce(func.sum(Order.total_amount), 0.0)) \
+        .filter(revenue_filter,
+                Order.created_at >= _month_start(1),
+                Order.created_at < first_of_month).scalar() or 0.0
+
+    # Six-month revenue series for the dashboard chart.
+    revenue_series = []
+    for offset in range(5, -1, -1):
+        start = _month_start(offset)
+        end = _month_start(offset - 1) if offset > 0 else datetime.utcnow() + timedelta(days=1)
+        amount = db.session.query(func.coalesce(func.sum(Order.total_amount), 0.0)) \
+            .filter(revenue_filter, Order.created_at >= start, Order.created_at < end).scalar() or 0.0
+        count = Order.query.filter(Order.created_at >= start, Order.created_at < end).count()
+        revenue_series.append({
+            'label': start.strftime('%b'),
+            'month': start.strftime('%Y-%m'),
+            'revenue': float(amount),
+            'orders': count,
+        })
+
+    status_counts = dict(
+        db.session.query(Order.status, func.count(Order.id)).group_by(Order.status).all()
+    )
+    status_breakdown = [
+        {'status': status, 'count': status_counts.get(status, 0)}
+        for status in ORDER_STATUSES
+    ]
+
+    top_products = [
+        {'id': pid, 'name': name, 'units': int(units or 0), 'revenue': float(revenue or 0)}
+        for pid, name, units, revenue in (
+            db.session.query(
+                Product.id, Product.name,
+                func.sum(OrderItem.quantity), func.sum(OrderItem.quantity * OrderItem.price)
+            )
+            .join(OrderItem, OrderItem.product_id == Product.id)
+            .join(Order, Order.id == OrderItem.order_id)
+            .filter(Order.status.in_(REVENUE_STATUSES))
+            .group_by(Product.id, Product.name)
+            .order_by(func.sum(OrderItem.quantity).desc())
+            .limit(5).all()
+        )
+    ]
+
+    low_stock = [
+        p.to_dict(include_images=False) for p in
+        Product.query.filter(Product.is_active.is_(True), Product.stock > 0, Product.stock <= 5)
+        .order_by(Product.stock.asc()).limit(5).all()
+    ]
+
+    recent_orders = (Order.query.options(joinedload(Order.user))
+                     .order_by(Order.created_at.desc()).limit(5).all())
+
+    growth = None
+    if last_month_revenue:
+        growth = round((month_revenue - last_month_revenue) / last_month_revenue * 100, 1)
 
     return jsonify({
         'total_products': total_products,
+        'active_products': active_products,
         'total_categories': total_categories,
         'total_orders': total_orders,
         'pending_orders': pending_orders,
+        'in_progress_orders': in_progress,
         'total_users': total_users,
         'new_users_month': new_users_month,
+        'total_revenue': float(total_revenue),
+        'month_revenue': float(month_revenue),
+        'last_month_revenue': float(last_month_revenue),
+        'revenue_growth': growth,
+        'average_order_value': float(total_revenue / total_orders) if total_orders else 0.0,
+        'revenue_series': revenue_series,
+        'status_breakdown': status_breakdown,
+        'top_products': top_products,
+        'low_stock': low_stock,
         'recent_orders': [o.to_dict(include_user=True) for o in recent_orders],
     })
 
@@ -88,20 +174,29 @@ def categories():
     return jsonify({'categories': [c.to_dict(include_product_count=True) for c in all_categories]})
 
 
+@admin_bp.route('/categories/<int:category_id>')
+@admin_required
+def get_category(category_id):
+    """Fetch a single category for editing."""
+    category = db.session.get(Category, category_id)
+    if category is None:
+        return error('Category not found.', 404)
+    return jsonify({'category': category.to_dict(include_product_count=True)})
+
+
 @admin_bp.route('/categories', methods=['POST'])
 @admin_required
 def add_category():
     """Add a new category."""
-    data = request.get_json(silent=True) or request.form
-    name = (data.get('name') or '').strip()
-    description = (data.get('description') or '').strip()
-    category_type = data.get('category_type') or 'stitching'
+    data = payload()
+    name = get_str(data, 'name')
+    description = get_str(data, 'description')
+    category_type = get_str(data, 'category_type') or 'stitching'
 
     if not name:
-        return jsonify({'error': 'Category name is required.'}), 400
-
-    if Category.query.filter_by(name=name).first():
-        return jsonify({'error': 'Category already exists.'}), 400
+        return error('Category name is required.')
+    if Category.query.filter(func.lower(Category.name) == name.lower()).first():
+        return error('Category already exists.')
 
     category = Category(name=name, description=description, category_type=category_type)
     db.session.add(category)
@@ -113,22 +208,22 @@ def add_category():
 @admin_required
 def edit_category(category_id):
     """Edit an existing category."""
-    category = Category.query.get_or_404(category_id)
-    data = request.get_json(silent=True) or request.form
-    name = (data.get('name') or '').strip()
-    description = (data.get('description') or '').strip()
-    category_type = data.get('category_type') or 'stitching'
+    category = db.session.get(Category, category_id)
+    if category is None:
+        return error('Category not found.', 404)
 
+    data = payload()
+    name = get_str(data, 'name')
     if not name:
-        return jsonify({'error': 'Category name is required.'}), 400
+        return error('Category name is required.')
 
-    existing = Category.query.filter_by(name=name).first()
+    existing = Category.query.filter(func.lower(Category.name) == name.lower()).first()
     if existing and existing.id != category.id:
-        return jsonify({'error': 'Another category with this name already exists.'}), 400
+        return error('Another category with this name already exists.')
 
     category.name = name
-    category.description = description
-    category.category_type = category_type
+    category.description = get_str(data, 'description')
+    category.category_type = get_str(data, 'category_type') or 'stitching'
     db.session.commit()
     return jsonify({'message': f'Category "{name}" updated!', 'category': category.to_dict()})
 
@@ -137,9 +232,11 @@ def edit_category(category_id):
 @admin_required
 def delete_category(category_id):
     """Delete a category (only if it has no products)."""
-    category = Category.query.get_or_404(category_id)
+    category = db.session.get(Category, category_id)
+    if category is None:
+        return error('Category not found.', 404)
     if category.products:
-        return jsonify({'error': 'Cannot delete category with existing products. Remove products first.'}), 400
+        return error('Cannot delete a category that still has products. Move or remove them first.')
 
     db.session.delete(category)
     db.session.commit()
@@ -151,122 +248,187 @@ def delete_category(category_id):
 @admin_bp.route('/products')
 @admin_required
 def products():
-    """List all products."""
-    all_products = Product.query.order_by(Product.created_at.desc()).all()
-    return jsonify({'products': [p.to_dict() for p in all_products]})
+    """Product list with search, category filter, and status filter."""
+    search = (request.args.get('q') or '').strip()
+    category_id = request.args.get('category', type=int)
+    status = request.args.get('status')  # active | inactive | low_stock | custom
+
+    query = Product.query.options(joinedload(Product.images), joinedload(Product.category))
+
+    if search:
+        query = query.filter(Product.name.ilike(f'%{search}%'))
+    if category_id:
+        query = query.filter(Product.category_id == category_id)
+    if status == 'active':
+        query = query.filter(Product.is_active.is_(True))
+    elif status == 'inactive':
+        query = query.filter(Product.is_active.is_(False))
+    elif status == 'low_stock':
+        query = query.filter(Product.stock > 0, Product.stock <= 5)
+    elif status == 'custom':
+        query = query.filter(Product.is_custom_blouse.is_(True))
+
+    all_products = query.order_by(Product.created_at.desc()).all()
+    return jsonify({
+        'products': [p.to_dict() for p in all_products],
+        'total': len(all_products),
+    })
 
 
 @admin_bp.route('/products/<int:product_id>')
 @admin_required
 def get_product(product_id):
     """Fetch a single product for editing."""
-    product = Product.query.get_or_404(product_id)
+    product = db.session.get(Product, product_id)
+    if product is None:
+        return error('Product not found.', 404)
     return jsonify({'product': product.to_dict()})
+
+
+def _apply_product_fields(product, form, require_name=True):
+    """Copy validated form fields onto a product. Returns an error string or None."""
+    name = get_str(form, 'name')
+    category_id = get_int(form, 'category_id')
+
+    if require_name and not name:
+        return 'Product name is required.'
+    if category_id is None:
+        return 'Please choose a category.'
+    if db.session.get(Category, category_id) is None:
+        return 'That category does not exist.'
+
+    price = get_float(form, 'price', minimum=0)
+    if price is None:
+        return 'Please enter a valid price.'
+
+    stock = get_int(form, 'stock', default=0, minimum=0)
+    compare_at = get_float(form, 'compare_at_price', minimum=0)
+    if compare_at is not None and compare_at <= price:
+        # A "was" price at or below the current price isn't a discount.
+        compare_at = None
+
+    product.name = name
+    product.description = get_str(form, 'description')
+    product.price = price
+    product.stock = stock
+    product.compare_at_price = compare_at
+    product.category_id = category_id
+    product.is_custom_blouse = get_bool(form, 'is_custom_blouse')
+    product.is_featured = get_bool(form, 'is_featured')
+    return None
 
 
 @admin_bp.route('/products', methods=['POST'])
 @admin_required
 def add_product():
     """Add a new product with images."""
-    name = (request.form.get('name') or '').strip()
-    description = (request.form.get('description') or '').strip()
-    price = request.form.get('price', '0')
-    category_id = request.form.get('category_id')
-    is_custom_blouse = request.form.get('is_custom_blouse') in ('on', 'true', '1')
-    stock = request.form.get('stock', '0')
+    product = Product(name='', price=0, category_id=0)
+    problem = _apply_product_fields(product, request.form)
+    if problem:
+        return error(problem)
 
-    if not name or not category_id:
-        return jsonify({'error': 'Product name and category are required.'}), 400
-
-    try:
-        price = float(price)
-        stock = int(stock)
-    except ValueError:
-        return jsonify({'error': 'Invalid price or stock value.'}), 400
-
-    product = Product(
-        name=name,
-        description=description,
-        price=price,
-        category_id=int(category_id),
-        is_custom_blouse=is_custom_blouse,
-        stock=stock
-    )
+    product.is_active = True
     db.session.add(product)
     db.session.flush()
 
-    files = request.files.getlist('images')
-    for i, file in enumerate(files):
-        if file and file.filename and allowed_file(file.filename):
-            image_path, file_data, mimetype = save_image(file)
-            img = ProductImage(
-                product_id=product.id,
-                image_path=image_path,
-                is_primary=(i == 0),
-                image_data=file_data,
-                image_mimetype=mimetype
-            )
-            db.session.add(img)
+    rejected = _attach_images(product, request.files.getlist('images'), mark_primary=True)
 
     db.session.commit()
-    return jsonify({'message': f'Product "{name}" added successfully!', 'product': product.to_dict()}), 201
+    message = f'Product "{product.name}" added successfully!'
+    if rejected:
+        message += f' ({rejected} file(s) skipped - unsupported format.)'
+    return jsonify({'message': message, 'product': product.to_dict()}), 201
 
 
 @admin_bp.route('/products/<int:product_id>', methods=['PUT'])
 @admin_required
 def edit_product(product_id):
     """Edit an existing product."""
-    product = Product.query.get_or_404(product_id)
+    product = db.session.get(Product, product_id)
+    if product is None:
+        return error('Product not found.', 404)
 
-    product.name = (request.form.get('name') or '').strip()
-    product.description = (request.form.get('description') or '').strip()
-    product.category_id = int(request.form.get('category_id'))
-    product.is_custom_blouse = request.form.get('is_custom_blouse') in ('on', 'true', '1')
-    product.is_active = request.form.get('is_active') in ('on', 'true', '1')
+    problem = _apply_product_fields(product, request.form)
+    if problem:
+        return error(problem)
 
-    try:
-        product.price = float(request.form.get('price', '0'))
-        product.stock = int(request.form.get('stock', '0'))
-    except ValueError:
-        return jsonify({'error': 'Invalid price or stock value.'}), 400
-
-    files = request.files.getlist('images')
-    for file in files:
-        if file and file.filename and allowed_file(file.filename):
-            image_path, file_data, mimetype = save_image(file)
-            img = ProductImage(
-                product_id=product.id,
-                image_path=image_path,
-                image_data=file_data,
-                image_mimetype=mimetype
-            )
-            db.session.add(img)
+    product.is_active = get_bool(request.form, 'is_active')
+    rejected = _attach_images(product, request.files.getlist('images'), mark_primary=not product.images)
 
     db.session.commit()
-    return jsonify({'message': f'Product "{product.name}" updated!', 'product': product.to_dict()})
+    message = f'Product "{product.name}" updated!'
+    if rejected:
+        message += f' ({rejected} file(s) skipped - unsupported format.)'
+    return jsonify({'message': message, 'product': product.to_dict()})
+
+
+def _attach_images(product, files, mark_primary=False):
+    """Save uploaded images against a product. Returns the count rejected."""
+    rejected = 0
+    for index, file in enumerate(files):
+        if not file or not file.filename:
+            continue
+        if not allowed_file(file.filename):
+            rejected += 1
+            continue
+        image_path, file_data, mimetype = save_image(file)
+        db.session.add(ProductImage(
+            product_id=product.id,
+            image_path=image_path,
+            is_primary=(mark_primary and index == 0),
+            image_data=file_data,
+            image_mimetype=mimetype,
+        ))
+    return rejected
+
+
+@admin_bp.route('/products/<int:product_id>/toggle', methods=['PUT'])
+@admin_required
+def toggle_product(product_id):
+    """Flip a product between visible and hidden without opening the form."""
+    product = db.session.get(Product, product_id)
+    if product is None:
+        return error('Product not found.', 404)
+
+    product.is_active = not product.is_active
+    db.session.commit()
+    state = 'visible to customers' if product.is_active else 'hidden'
+    return jsonify({'message': f'"{product.name}" is now {state}.', 'product': product.to_dict()})
 
 
 @admin_bp.route('/products/<int:product_id>', methods=['DELETE'])
 @admin_required
 def delete_product(product_id):
     """Delete a product and its images."""
-    product = Product.query.get_or_404(product_id)
+    product = db.session.get(Product, product_id)
+    if product is None:
+        return error('Product not found.', 404)
+
+    if product.order_items:
+        # Deleting would orphan historical order lines, so hide it instead.
+        return error(
+            'This product appears in past orders and cannot be deleted. '
+            'Set it to inactive to hide it from the shop.'
+        )
 
     for img in product.images:
         filepath = os.path.join(current_app.static_folder, img.image_path)
         if os.path.exists(filepath):
             os.remove(filepath)
 
+    name = product.name
     db.session.delete(product)
     db.session.commit()
-    return jsonify({'message': f'Product "{product.name}" deleted.'})
+    return jsonify({'message': f'Product "{name}" deleted.'})
 
 
 @admin_bp.route('/products/images/<int:image_id>', methods=['DELETE'])
 @admin_required
 def delete_product_image(image_id):
     """Delete a single product image."""
-    img = ProductImage.query.get_or_404(image_id)
+    img = db.session.get(ProductImage, image_id)
+    if img is None:
+        return error('Image not found.', 404)
 
     filepath = os.path.join(current_app.static_folder, img.image_path)
     if os.path.exists(filepath):
@@ -279,32 +441,131 @@ def delete_product_image(image_id):
 
 # ─── Order Management ───────────────────────────────────────────────────────
 
+def _filtered_orders():
+    """Order query honouring the status / search / date query parameters."""
+    status = request.args.get('status')
+    search = (request.args.get('q') or '').strip()
+    days = request.args.get('days', type=int)
+
+    query = Order.query.options(joinedload(Order.user), joinedload(Order.items))
+
+    if status and status in ORDER_STATUSES:
+        query = query.filter(Order.status == status)
+    if days:
+        query = query.filter(Order.created_at >= datetime.utcnow() - timedelta(days=days))
+
+    if search:
+        like = f'%{search}%'
+        # Outer join so an order whose user row is missing still matches on
+        # phone or id, and so the search stacks with the other filters rather
+        # than replacing them.
+        conditions = [
+            User.username.ilike(like),
+            User.email.ilike(like),
+            Order.phone.ilike(like),
+        ]
+        bare = search.lstrip('#')
+        if bare.isdigit():
+            conditions.append(Order.id == int(bare))
+
+        query = query.outerjoin(User, User.id == Order.user_id).filter(or_(*conditions))
+
+    return query.order_by(Order.created_at.desc())
+
+
 @admin_bp.route('/orders')
 @admin_required
 def orders():
-    """View all orders."""
-    all_orders = Order.query.order_by(Order.created_at.desc()).all()
-    return jsonify({'orders': [o.to_dict(include_user=True) for o in all_orders]})
+    """All orders, with optional status/search/date filtering."""
+    all_orders = _filtered_orders().all()
+    revenue = sum(o.total_amount for o in all_orders if o.status != 'cancelled')
+    return jsonify({
+        'orders': [o.to_dict(include_user=True) for o in all_orders],
+        'total': len(all_orders),
+        'filtered_revenue': revenue,
+        'statuses': list(ORDER_STATUSES),
+    })
+
+
+@admin_bp.route('/orders/export')
+@admin_required
+def export_orders():
+    """Download the current order view as a CSV file."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([
+        'Order ID', 'Date', 'Customer', 'Email', 'Phone',
+        'Items', 'Total', 'Status', 'Shipping Address', 'Notes',
+    ])
+    for order in _filtered_orders().all():
+        writer.writerow([
+            order.id,
+            order.created_at.strftime('%Y-%m-%d %H:%M') if order.created_at else '',
+            order.user.username if order.user else '',
+            order.user.email if order.user else '',
+            order.phone or '',
+            '; '.join(f'{i.product.name if i.product else "?"} x{i.quantity}' for i in order.items),
+            f'{order.total_amount:.2f}',
+            order.status,
+            (order.shipping_address or '').replace('\n', ' '),
+            (order.notes or '').replace('\n', ' '),
+        ])
+
+    filename = f'sb-lotus-orders-{datetime.utcnow():%Y-%m-%d}.csv'
+    return Response(
+        buffer.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename={filename}'},
+    )
 
 
 @admin_bp.route('/orders/<int:order_id>')
 @admin_required
 def order_detail(order_id):
     """View order details with parsed measurements."""
-    order = Order.query.get_or_404(order_id)
+    order = db.session.get(Order, order_id)
+    if order is None:
+        return error('Order not found.', 404)
     return jsonify({'order': order.to_dict(include_user=True)})
 
 
 @admin_bp.route('/orders/<int:order_id>/status', methods=['PUT'])
 @admin_required
 def update_order_status(order_id):
-    """Update order status (pending, confirmed, stitching, ready, delivered)."""
-    order = Order.query.get_or_404(order_id)
-    data = request.get_json(silent=True) or request.form
-    new_status = data.get('status') or 'pending'
-    order.status = new_status
+    """Update order status and append to its timeline."""
+    order = db.session.get(Order, order_id)
+    if order is None:
+        return error('Order not found.', 404)
+
+    data = payload()
+    new_status = get_str(data, 'status')
+    note = get_str(data, 'note')
+
+    if new_status not in ORDER_STATUSES:
+        return error(f'Unknown status. Choose one of: {", ".join(ORDER_STATUSES)}.')
+    if new_status == order.status:
+        return error(f'This order is already marked "{new_status}".')
+
+    was_cancelled = order.status == 'cancelled'
+    order.set_status(new_status, note=note or None)
+
+    # Cancelling releases reserved stock; reinstating an order takes it back.
+    if new_status == 'cancelled' and not was_cancelled:
+        order.cancel_reason = note or None
+        for item in order.items:
+            if item.product and not item.product.is_made_to_order:
+                item.product.stock += item.quantity
+    elif was_cancelled and new_status != 'cancelled':
+        order.cancel_reason = None
+        for item in order.items:
+            if item.product and not item.product.is_made_to_order:
+                item.product.stock = max(0, item.product.stock - item.quantity)
+
     db.session.commit()
-    return jsonify({'message': f'Order #{order.id} status updated to "{new_status}".', 'order': order.to_dict(include_user=True)})
+    return jsonify({
+        'message': f'Order #{order.id} status updated to "{new_status}".',
+        'order': order.to_dict(include_user=True),
+    })
 
 
 # ─── User Management ──────────────────────────────────────────────────────
@@ -312,43 +573,102 @@ def update_order_status(order_id):
 @admin_bp.route('/users')
 @admin_required
 def users():
-    """List all registered users with stats."""
-    all_users = User.query.filter_by(is_admin=False).order_by(User.created_at.desc()).all()
+    """List registered users with order stats, in a single aggregate query."""
+    search = (request.args.get('q') or '').strip()
 
-    user_stats = []
-    for user in all_users:
-        user_orders = Order.query.filter_by(user_id=user.id).all()
-        total_orders = len(user_orders)
-        total_spent = sum(o.total_amount for o in user_orders)
-        user_stats.append({
+    query = User.query.filter(User.is_admin.is_(False))
+    if search:
+        like = f'%{search}%'
+        query = query.filter(or_(User.username.ilike(like), User.email.ilike(like)))
+    all_users = query.order_by(User.created_at.desc()).all()
+
+    # One grouped query instead of two per user.
+    stats_rows = dict()
+    for user_id, count, spent in (
+        db.session.query(Order.user_id, func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
+        .filter(Order.status != 'cancelled')
+        .group_by(Order.user_id).all()
+    ):
+        stats_rows[user_id] = (count, float(spent or 0))
+
+    user_stats = [
+        {
             'user': user.to_dict(),
-            'total_orders': total_orders,
-            'total_spent': total_spent,
-        })
+            'total_orders': stats_rows.get(user.id, (0, 0.0))[0],
+            'total_spent': stats_rows.get(user.id, (0, 0.0))[1],
+        }
+        for user in all_users
+    ]
 
-    total_users = len(all_users)
-    first_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    new_users_month = User.query.filter(
-        User.is_admin == False,
-        User.created_at >= first_of_month
-    ).count()
-
+    first_of_month = _month_start()
     return jsonify({
         'user_stats': user_stats,
-        'total_users': total_users,
-        'new_users_month': new_users_month,
+        'total_users': User.query.filter_by(is_admin=False).count(),
+        'new_users_month': User.query.filter(
+            User.is_admin.is_(False), User.created_at >= first_of_month
+        ).count(),
+        'suspended_users': User.query.filter(
+            User.is_admin.is_(False), User.is_active_account.is_(False)
+        ).count(),
     })
 
 
 @admin_bp.route('/users/<int:user_id>')
 @admin_required
 def user_detail(user_id):
-    """View individual user details and their orders."""
-    user = User.query.get_or_404(user_id)
-    user_orders = Order.query.filter_by(user_id=user.id).order_by(Order.created_at.desc()).all()
-    total_spent = sum(o.total_amount for o in user_orders)
+    """View individual user details, orders, and reviews."""
+    user = db.session.get(User, user_id)
+    if user is None:
+        return error('User not found.', 404)
+
+    user_orders = (Order.query.filter_by(user_id=user.id)
+                   .order_by(Order.created_at.desc()).all())
+    reviews = Review.query.filter_by(user_id=user.id).order_by(Review.created_at.desc()).all()
+
     return jsonify({
         'user': user.to_dict(),
         'orders': [o.to_dict() for o in user_orders],
-        'total_spent': total_spent,
+        'total_spent': sum(o.total_amount for o in user_orders if o.status != 'cancelled'),
+        'reviews': [r.to_dict() for r in reviews],
+    })
+
+
+@admin_bp.route('/users/<int:user_id>/toggle', methods=['PUT'])
+@admin_required
+def toggle_user(user_id):
+    """Suspend or reinstate a customer account."""
+    user = db.session.get(User, user_id)
+    if user is None:
+        return error('User not found.', 404)
+    if user.is_admin:
+        return error('Admin accounts cannot be suspended here.')
+    if user.id == current_user.id:
+        return error('You cannot suspend your own account.')
+
+    user.is_active_account = not user.is_active_account
+    db.session.commit()
+    state = 'reinstated' if user.is_active_account else 'suspended'
+    return jsonify({'message': f'{user.username} has been {state}.', 'user': user.to_dict()})
+
+
+# ─── Review Moderation ────────────────────────────────────────────────────
+
+@admin_bp.route('/reviews')
+@admin_required
+def reviews():
+    """All customer reviews, newest first, for moderation."""
+    all_reviews = (Review.query.options(joinedload(Review.user), joinedload(Review.product))
+                   .order_by(Review.created_at.desc()).limit(200).all())
+
+    payload_items = []
+    for review in all_reviews:
+        item = review.to_dict()
+        item['product_name'] = review.product.name if review.product else None
+        payload_items.append(item)
+
+    average = db.session.query(func.coalesce(func.avg(Review.rating), 0.0)).scalar() or 0.0
+    return jsonify({
+        'reviews': payload_items,
+        'total': Review.query.count(),
+        'average_rating': round(float(average), 2),
     })

@@ -8,9 +8,15 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const data = await api.get('/api/auth/me')
-    setUser(data.user)
-    return data.user
+    try {
+      const data = await api.get('/api/auth/me')
+      setUser(data.user)
+      return data.user
+    } catch {
+      // A failed session probe means "not logged in", not a broken page.
+      setUser(null)
+      return null
+    }
   }, [])
 
   useEffect(() => {
@@ -23,9 +29,7 @@ export function AuthProvider({ children }) {
     return data
   }, [])
 
-  const register = useCallback(async (payload) => {
-    return api.post('/api/auth/register', payload)
-  }, [])
+  const register = useCallback(async (payload) => api.post('/api/auth/register', payload), [])
 
   const logout = useCallback(async () => {
     await api.post('/api/auth/logout')
