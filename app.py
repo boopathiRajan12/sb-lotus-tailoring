@@ -51,6 +51,10 @@ _ADDED_COLUMNS = {
     ],
 }
 
+# Arbitrary but fixed key for the Postgres advisory lock that serialises
+# startup schema work across gunicorn workers.
+_BOOTSTRAP_LOCK_KEY = 4815162342
+
 
 def create_app():
     """Application factory - creates and configures the Flask app."""
@@ -127,10 +131,9 @@ def create_app():
             return send_from_directory(FRONTEND_DIST, 'index.html')
 
     # Create tables and default admin on first run
-    with app.app_context():
-        db.create_all()
-        _migrate_db()
-        _create_default_admin()
+    if app.config.get('DB_AUTO_CREATE', True):
+        with app.app_context():
+            _bootstrap_db()
 
     return app
 
@@ -158,13 +161,45 @@ def _register_error_handlers(app):
         return err
 
 
+def _bootstrap_db():
+    """Create tables, patch in later columns, and ensure an admin exists.
+
+    Gunicorn starts several workers at once and every one of them runs this, so
+    on Postgres the whole thing is serialised behind a session-level advisory
+    lock - concurrent `CREATE TABLE` / `ALTER TABLE` against Supabase otherwise
+    deadlocks or errors out on a duplicate.
+    """
+    from sqlalchemy import text
+
+    if db.engine.dialect.name != 'postgresql':
+        db.create_all()
+        _migrate_db()
+        _create_default_admin()
+        return
+
+    # A dedicated connection, held open for the whole bootstrap: the lock is
+    # session-scoped, so it has to outlive the individual commits below.
+    # (Behind the 6543 transaction pooler sessions aren't sticky and this
+    # degrades to a no-op - no worse than having no lock at all.)
+    with db.engine.connect() as conn:
+        conn.execute(text('SELECT pg_advisory_lock(:key)'), {'key': _BOOTSTRAP_LOCK_KEY})
+        conn.commit()
+        try:
+            db.create_all()
+            _migrate_db()
+            _create_default_admin()
+        finally:
+            conn.execute(text('SELECT pg_advisory_unlock(:key)'), {'key': _BOOTSTRAP_LOCK_KEY})
+            conn.commit()
+
+
 def _migrate_db():
     """Add columns introduced after the initial release to existing tables."""
     from sqlalchemy import text, inspect
 
     inspector = inspect(db.engine)
     dialect = db.engine.dialect.name
-    blob_type = {'sqlite': 'BLOB', 'postgresql': 'BYTEA'}.get(dialect, 'LONGBLOB')
+    blob_type = {'sqlite': 'BLOB', 'mysql': 'LONGBLOB'}.get(dialect, 'BYTEA')
     existing_tables = set(inspector.get_table_names())
 
     with db.engine.connect() as conn:

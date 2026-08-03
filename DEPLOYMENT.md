@@ -1,165 +1,176 @@
-# Deploy SB Lotus Tailoring Shop on PythonAnywhere (FREE)
+# Deploying SB Lotus Tailoring Shop
 
-## Why PythonAnywhere?
-- 100% Free tier available
-- Built-in MySQL database (free)
-- Perfect for Flask apps
-- No credit card required
+The database is Supabase, so it is already hosted and shared no matter where the
+app itself runs. Deployment is: get the code onto a host, set two environment
+variables, start gunicorn.
 
----
+Set up Supabase first — see [SUPABASE.md](SUPABASE.md).
 
-## Step-by-Step Deployment
+## Environment variables (every host)
 
-### Step 1: Create a PythonAnywhere Account
+| Variable | Value | Required |
+|----------|-------|----------|
+| `SUPABASE_DB_URL` | Connection URI from Supabase → Settings → Database | Yes |
+| `SECRET_KEY` | `python -c "import secrets; print(secrets.token_hex(32))"` | Yes |
+| `ADMIN_PASSWORD` | Password for the auto-created admin account | Strongly recommended |
+| `SESSION_COOKIE_SECURE` | `true` when serving over HTTPS | Auto-on for Render |
 
-1. Go to https://www.pythonanywhere.com
-2. Click **"Start running Python online"** > **"Create a Beginner account"**
-3. Sign up (free, no credit card needed)
-4. Your username will be part of your URL: `https://YOUR_USERNAME.pythonanywhere.com`
-
----
-
-### Step 2: Create a MySQL Database
-
-1. Go to the **Databases** tab
-2. Set a MySQL password and click **"Initialize MySQL"**
-3. Under "Create a database", type: `sblotus` and click **Create**
-4. Note down these details:
-   - **Host**: `YOUR_USERNAME.mysql.pythonanywhere-services.com`
-   - **Username**: `YOUR_USERNAME`
-   - **Password**: the password you just set
-   - **Database name**: `YOUR_USERNAME$sblotus`
+The app refuses to start without a database URL rather than silently falling
+back to a local file — an empty SQLite database that looks like it works is a
+worse failure than a clear error.
 
 ---
 
-### Step 3: Upload Your Code
+## Option A — Render (recommended)
 
-1. Go to the **Consoles** tab
-2. Click **"Bash"** to open a terminal
-3. Run these commands:
+`render.yaml` is already set up for this. No Render database is provisioned;
+the app points at Supabase.
+
+1. Push the repo to GitHub.
+2. In Render: **New → Blueprint**, pick the repo. It reads `render.yaml`.
+3. Open the service's **Environment** tab and set:
+   - `SUPABASE_DB_URL` — your Supabase URI
+   - `ADMIN_PASSWORD` — your admin password
+
+   (`SECRET_KEY` is generated for you.)
+4. **Manual Deploy → Deploy latest commit.**
+
+`build.sh` builds the React app into `frontend/dist`, installs the Python
+dependencies, creates any missing tables in Supabase, and seeds sample data if
+the database is empty. Flask then serves the built SPA and the API from one
+process, so only one port is needed.
+
+If the first build ran before you set `SUPABASE_DB_URL`, it skips the database
+step and says so in the log — just redeploy once the variable is in place.
+
+---
+
+## Option B — PythonAnywhere
+
+The free tier can't reach external hosts on arbitrary ports, so **the Supabase
+connection will be blocked unless you are on a paid plan**. Check this before
+committing to PythonAnywhere; Render's free tier has no such restriction.
+
+On a paid account:
+
+1. **Consoles → Bash:**
+
+   ```bash
+   git clone https://github.com/boopathiRajan12/sb-lotus-tailoring.git
+   cd sb-lotus-tailoring
+   pip3 install --user -r requirements.txt
+   ```
+
+2. Create `.env` in the project root (Files tab, or `nano .env`):
+
+   ```ini
+   SUPABASE_DB_URL=postgresql://postgres.<ref>:<password>@<host>:5432/postgres
+   SECRET_KEY=<a long random string>
+   ADMIN_PASSWORD=<your admin password>
+   SESSION_COOKIE_SECURE=true
+   ```
+
+   No edits to `config.py` — it reads `.env` automatically.
+
+3. **Web → Add a new web app → Manual configuration → Python 3.12.**
+
+4. **Source code:** `/home/YOUR_USERNAME/sb-lotus-tailoring`
+
+   **WSGI configuration file** — replace the contents with:
+
+   ```python
+   import sys
+   import os
+
+   path = '/home/YOUR_USERNAME/sb-lotus-tailoring'
+   if path not in sys.path:
+       sys.path.insert(0, path)
+
+   os.chdir(path)
+
+   from wsgi import application
+   ```
+
+   **Static files** — map URL `/static/` to
+   `/home/YOUR_USERNAME/sb-lotus-tailoring/static`
+
+5. Build the frontend and the schema:
+
+   ```bash
+   cd ~/sb-lotus-tailoring/frontend && npm install && npm run build && cd ..
+   python3 scripts/db_check.py
+   python3 seed_data.py
+   ```
+
+6. **Web → Reload.**
+
+---
+
+## Option C — Any VPS / container
 
 ```bash
-git clone https://github.com/boopathiRajan12/sb-lotus-tailoring.git
-cd sb-lotus-tailoring
-pip3 install --user -r requirements.txt
+export SUPABASE_DB_URL='postgresql://...'
+export SECRET_KEY='...'
+export SESSION_COOKIE_SECURE=true
+
+pip install -r requirements.txt
+cd frontend && npm install && npm run build && cd ..
+gunicorn wsgi:application --bind 0.0.0.0:8000 --workers 4
 ```
 
----
-
-### Step 4: Update Database Configuration
-
-1. Go to the **Files** tab
-2. Navigate to `/home/YOUR_USERNAME/sb-lotus-tailoring/config.py`
-3. Click to edit it
-4. Change the `SQLALCHEMY_DATABASE_URI` line to:
-
-```python
-SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL',
-    'mysql+pymysql://YOUR_USERNAME:YOUR_MYSQL_PASSWORD@YOUR_USERNAME.mysql.pythonanywhere-services.com/YOUR_USERNAME$sblotus'
-)
-```
-
-Replace:
-- `YOUR_USERNAME` with your PythonAnywhere username
-- `YOUR_MYSQL_PASSWORD` with the MySQL password you set in Step 2
-
-5. Click **Save**
+Watch the connection budget: each worker holds up to `DB_POOL_SIZE +
+DB_MAX_OVERFLOW` (7 by default) connections, and the Supabase free tier allows
+around 60 in total. Either keep workers × 7 under that, or switch to the
+transaction pooler on port 6543 — the app detects that port and lets pgbouncer
+handle pooling instead.
 
 ---
-
-### Step 5: Create the Web App
-
-1. Go to the **Web** tab
-2. Click **"Add a new web app"**
-3. Click **Next** (accept the free domain)
-4. Select **"Manual configuration"** (NOT Flask)
-5. Select **Python 3.12**
-6. Click **Next**
-
----
-
-### Step 6: Configure the Web App
-
-On the Web tab, update these settings:
-
-**Source code:** `/home/YOUR_USERNAME/sb-lotus-tailoring`
-
-**WSGI configuration file** - Click the link to edit it. Replace ALL contents with:
-
-```python
-import sys
-import os
-
-path = '/home/YOUR_USERNAME/sb-lotus-tailoring'
-if path not in sys.path:
-    sys.path.insert(0, path)
-
-os.chdir(path)
-
-from wsgi import application
-```
-
-Replace `YOUR_USERNAME` with your PythonAnywhere username. Click **Save**.
-
-**Static files** - Add this mapping:
-- URL: `/static/`
-- Directory: `/home/YOUR_USERNAME/sb-lotus-tailoring/static`
-
----
-
-### Step 7: Create Tables and Seed Data
-
-1. Go to **Consoles** > open a **Bash** console
-2. Run:
-
-```bash
-cd ~/sb-lotus-tailoring
-python3 -c "from app import create_app; create_app()"
-python3 seed_data.py
-```
-
----
-
-### Step 8: Launch!
-
-1. Go to the **Web** tab
-2. Click the green **"Reload"** button
-3. Visit: `https://YOUR_USERNAME.pythonanywhere.com`
-
----
-
-## Your Live Site URLs
-
-| Page | URL |
-|------|-----|
-| Home | `https://YOUR_USERNAME.pythonanywhere.com/` |
-| Products | `https://YOUR_USERNAME.pythonanywhere.com/products` |
-| Custom Blouse | `https://YOUR_USERNAME.pythonanywhere.com/custom-blouse` |
-| Admin Dashboard | `https://YOUR_USERNAME.pythonanywhere.com/admin/` |
-| Login | `https://YOUR_USERNAME.pythonanywhere.com/login` |
-| Register | `https://YOUR_USERNAME.pythonanywhere.com/register` |
 
 ## Login Credentials
 
 | Role | Username | Password |
 |------|----------|----------|
-| Admin | `admin` | `admin123` |
-| Customer | Register a new account at `/register` |
+| Admin | `admin` | your `ADMIN_PASSWORD` (`admin123` if you didn't set one) |
+| Customer | Register a new account at `/register` | |
+
+The admin account is created on first startup only. Changing `ADMIN_PASSWORD`
+afterwards has no effect — change it from the profile page instead.
 
 ---
 
 ## Troubleshooting
 
-**Error: "Something went wrong"**
-- Go to Web tab > click "Error log" to see the issue
-- Most common: wrong database credentials in config.py
+**App won't start: "No database configured"**
+`SUPABASE_DB_URL` isn't reaching the process. On Render, confirm it's in the
+Environment tab and redeploy; elsewhere, confirm `.env` sits next to `app.py`.
 
-**Error: "ModuleNotFoundError"**
-- Open a Bash console and run: `pip3 install --user -r requirements.txt`
+**`FATAL: password authentication failed`**
+Wrong password, or a password containing `@` / `#` / `?` pasted un-encoded into
+the URI. Use the `SUPABASE_DB_HOST` / `SUPABASE_DB_PASSWORD` variables instead —
+they percent-encode it for you. Or reset the password under Supabase →
+Settings → Database.
 
-**Database tables not created**
-- Open Bash console: `cd ~/sb-lotus-tailoring && python3 -c "from app import create_app; create_app()"`
+**Connection times out**
+Usually the direct `db.<ref>.supabase.co` host, which is IPv6-only. Switch to
+the pooler host (`...pooler.supabase.com:5432`). Also check the project isn't
+paused — free projects sleep after a week idle.
 
-**To update your code after making changes on GitHub:**
-- Open Bash console: `cd ~/sb-lotus-tailoring && git pull`
-- Go to Web tab > click **Reload**
+**`remaining connection slots are reserved` / `too many clients`**
+Too many gunicorn workers × pool size. Lower `DB_POOL_SIZE`, lower the worker
+count, or move to port 6543.
+
+**Tables are missing**
+```bash
+python3 -c "from app import create_app; create_app()"
+```
+or run [`supabase/schema.sql`](supabase/schema.sql) in the Supabase SQL Editor.
+
+**Data is visible outside the app**
+Row-level security isn't enabled. Run the RLS block at the bottom of
+`supabase/schema.sql` — see the Security section of [SUPABASE.md](SUPABASE.md).
+
+**Updating a deployment**
+```bash
+git pull
+```
+then redeploy (Render) or Reload (PythonAnywhere).

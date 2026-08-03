@@ -2,25 +2,35 @@
 
 ## Prerequisites
 - Python 3.9+ installed
-- MySQL Server installed and running
+- Node.js 18+ (for the React frontend)
+- A free Supabase account — <https://supabase.com>
 - PyCharm (optional, any IDE works)
 
 ## Step-by-Step Setup
 
-### 1. Create MySQL Database
+### 1. Create a Supabase Project
 
-Open MySQL command line or MySQL Workbench and run:
-```sql
-CREATE DATABASE sb_lotus_tailoring CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+Sign up at <https://supabase.com>, create a project, and save the database
+password it asks you to set.
+
+### 2. Configure the Connection
+
+Copy the connection URI from Project Settings → Database → Connection string
+(use the **Session pooler**, port 5432), then:
+
+```bash
+cp .env.example .env
 ```
 
-### 2. Update Database Credentials
+Edit `.env` and paste the URI into `SUPABASE_DB_URL`, replacing
+`[YOUR-PASSWORD]` with your real password. Also set `SECRET_KEY` and
+`ADMIN_PASSWORD`.
 
-Open `config.py` and update the MySQL connection string with your credentials:
-```python
-SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://YOUR_USERNAME:YOUR_PASSWORD@localhost:3306/sb_lotus_tailoring'
-```
-Default is `root:root` - change this to match your MySQL setup.
+`.env` is gitignored — credentials never go in `config.py` or into git.
+
+[SUPABASE.md](SUPABASE.md) covers this in full, including which pooler host to
+pick, migrating existing data, and the row-level-security lockdown you should
+apply.
 
 ### 3. Install Python Dependencies
 
@@ -29,18 +39,27 @@ Open a terminal in the `sb_lotus_tailoring` folder:
 pip install -r requirements.txt
 ```
 
-### 4. Run the Backend
+### 4. Create the Schema
+
+Run [`supabase/schema.sql`](supabase/schema.sql) in the Supabase SQL Editor.
+Then check the connection works:
+
+```bash
+python scripts/db_check.py
+```
+
+### 5. Run the Backend
 
 ```bash
 python app.py
 ```
 
 This will:
-- Create all database tables automatically
-- Create a default admin account (username: `admin`, password: `admin123`)
+- Create any missing tables automatically
+- Create a default admin account (username: `admin`, password: `ADMIN_PASSWORD`)
 - Start the API server at `http://localhost:5000`
 
-### 5. Load Sample Data (Optional)
+### 6. Load Sample Data (Optional)
 
 In a separate terminal:
 ```bash
@@ -49,7 +68,10 @@ python seed_data.py
 
 This adds sample categories and products to the database.
 
-### 6. Run the Frontend
+Migrating from the old MySQL or SQLite database instead? See
+[SUPABASE.md](SUPABASE.md#6-load-data).
+
+### 7. Run the Frontend
 
 In a separate terminal:
 ```bash
@@ -74,7 +96,7 @@ This starts the React app at `http://localhost:5173`, which proxies API calls to
 ### Admin Login
 - URL: `http://localhost:5173/login`
 - Username: `admin`
-- Password: `admin123`
+- Password: whatever you set as `ADMIN_PASSWORD` in `.env` (`admin123` if unset)
 - Admin dashboard: `http://localhost:5173/admin`
 
 ### Admin Workflow
@@ -95,9 +117,14 @@ This starts the React app at `http://localhost:5173`, which proxies API calls to
 ```
 sb_lotus_tailoring/
 ├── app.py                  # Main application entry point (JSON API + SPA static serving)
-├── config.py               # Configuration (DB, uploads, etc.)
+├── config.py               # Configuration (Supabase connection, uploads, etc.)
 ├── requirements.txt        # Python dependencies
-├── database_setup.sql      # MySQL table creation scripts
+├── .env.example            # Template for the Supabase credentials
+├── SUPABASE.md             # Supabase setup, migration, and security guide
+├── supabase/schema.sql     # PostgreSQL schema + row-level-security lockdown
+├── scripts/
+│   ├── db_check.py         # Connectivity + row-count smoke test
+│   └── migrate_to_supabase.py  # One-time data copy from MySQL/SQLite
 ├── seed_data.py            # Sample data loader
 ├── models/                 # Database models (SQLAlchemy), each with a to_dict() serializer
 │   ├── __init__.py

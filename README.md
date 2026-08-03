@@ -1,18 +1,20 @@
 # SB LOTUS TAILORING SHOP
 
-A full-stack tailoring shop web application: a Flask + SQLAlchemy (PostgreSQL/MySQL/SQLite) JSON API backend with a React (Vite) single-page frontend.
+A full-stack tailoring shop web application: a Flask + SQLAlchemy JSON API backend on **Supabase** (managed PostgreSQL), with a React (Vite) single-page frontend.
 
-## One-Click Deploy to Render (FREE)
+## Quick Start
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/boopathiRajan12/sb-lotus-tailoring)
+1. Create a free Supabase project and copy its connection URI
+2. `cp .env.example .env` and paste the URI into `SUPABASE_DB_URL`
+3. `pip install -r requirements.txt && python scripts/db_check.py`
 
-**Click the button above, sign in with GitHub, and your site will be live in 5 minutes!**
+Full walkthrough: **[SUPABASE.md](SUPABASE.md)** · Local dev: [SETUP.md](SETUP.md) · Hosting: [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ## Login Credentials
 
 | Role | Username | Password |
 |------|----------|----------|
-| Admin | `admin` | `admin123` (override with the `ADMIN_PASSWORD` env var) |
+| Admin | `admin` | your `ADMIN_PASSWORD` env var (`admin123` if unset) |
 | Customer | Register at `/register` | |
 
 ## Features
@@ -57,7 +59,7 @@ A full-stack tailoring shop web application: a Flask + SQLAlchemy (PostgreSQL/My
 The backend (Flask API, port 5000) and frontend (React/Vite, port 5173) run as two processes in development. Vite proxies `/api` and `/product-image` requests to Flask, so the browser only ever talks to `http://localhost:5173`.
 
 **Backend:**
-1. Install MySQL and create database `sb_lotus_tailoring` (optional — falls back to SQLite automatically if MySQL isn't running)
+1. Point `.env` at your Supabase project (see [SUPABASE.md](SUPABASE.md))
 2. Run: `pip install -r requirements.txt`
 3. Run: `python app.py`
 4. Load sample data (once): `python seed_data.py`
@@ -70,18 +72,31 @@ The backend (Flask API, port 5000) and frontend (React/Vite, port 5173) run as t
 
 **Production build:** `build.sh` runs `npm run build` (output to `frontend/dist`) before starting Python; `app.py` serves that build directly, so only one process/port is needed in production (see `render.yaml`).
 
-## Database Migrations
+## Database
 
-New columns added after the initial release are applied automatically at startup by `_migrate_db()` in `app.py`, driven by the `_ADDED_COLUMNS` table. `db.create_all()` handles brand-new tables. Both are safe to re-run, so an existing deployment upgrades in place with no manual SQL.
+Supabase (managed PostgreSQL), reached directly over the Postgres wire protocol with SQLAlchemy — Supabase Auth and PostgREST are not used, so authentication stays with Flask-Login and session cookies.
+
+- `supabase/schema.sql` — the schema, plus the row-level-security lockdown that keeps `users` and `orders` off the public PostgREST endpoint. **Run it.**
+- `scripts/db_check.py` — connectivity and row-count smoke test
+- `scripts/migrate_to_supabase.py` — one-time data copy from an old MySQL/SQLite database
+
+New columns added after the initial release are applied automatically at startup by `_migrate_db()` in `app.py`, driven by the `_ADDED_COLUMNS` table; `db.create_all()` handles brand-new tables. Both are idempotent and, on Postgres, serialised behind an advisory lock so concurrent gunicorn workers don't race — an existing deployment upgrades in place with no manual SQL.
 
 ## Environment Variables
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
+| `SUPABASE_DB_URL` | Supabase connection URI | **Required** — the app won't start without it |
 | `SECRET_KEY` | Session signing key | Development placeholder — **set this in production** |
-| `DATABASE_URL` | Postgres/MySQL connection string | Falls back to local MySQL, then SQLite |
 | `ADMIN_PASSWORD` | Password for the auto-created admin | `admin123` |
 | `SESSION_COOKIE_SECURE` | Force HTTPS-only session cookies | On when `RENDER` is set, off locally |
+| `DATABASE_URL` | Alias for `SUPABASE_DB_URL`, for hosts that inject it | — |
+| `SUPABASE_DB_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_NAME` | Connection parts, assembled and URL-encoded here | Use instead of `SUPABASE_DB_URL` when the password has special characters |
+| `DB_AUTO_CREATE` | Run `create_all()` + column patches at startup | `true` |
+| `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_RECYCLE` | SQLAlchemy pool sizing | `5` / `2` / `280` |
+| `ALLOW_SQLITE_FALLBACK` | Offline dev against a local SQLite file | `false` |
+
+See `.env.example`.
 
 ## API Overview
 
@@ -99,7 +114,10 @@ New columns added after the initial release are applied automatically at startup
 
 ```
 app.py                  Application factory, image serving, auto-migrations
-config.py               Database selection, session-cookie hardening, upload limits
+config.py               Supabase connection + pooling, session-cookie hardening,
+                        upload limits
+supabase/schema.sql     PostgreSQL schema and RLS lockdown
+scripts/                db_check.py, migrate_to_supabase.py
 models/                 SQLAlchemy models (user, product, category, cart, order,
                         product_image, wishlist, review)
 routes/                 API blueprints (auth, shop, cart, admin, wishlist, review)
