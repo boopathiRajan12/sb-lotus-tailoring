@@ -10,7 +10,6 @@ Resolution order for the connection string:
   2. DATABASE_URL      - same thing under the name most hosts inject
   3. SUPABASE_DB_HOST/_PORT/_USER/_PASSWORD/_NAME - assembled here, which
      also URL-encodes the password for you
-  4. SQLite, but only when ALLOW_SQLITE_FALLBACK is set (offline development)
 """
 import os
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
@@ -97,9 +96,6 @@ This app runs on Supabase (managed PostgreSQL). Set the connection string:
        SUPABASE_DB_URL=postgresql://postgres.<ref>:<password>@<host>:5432/postgres
 
      (start from `.env.example`, and see SUPABASE.md for the full walkthrough)
-
-To work offline against a throwaway SQLite file instead, set
-ALLOW_SQLITE_FALLBACK=true.
 """.strip()
 
 
@@ -114,10 +110,6 @@ def _resolve_database_uri():
     if assembled:
         return _normalise_db_url(assembled), 'SUPABASE_DB_* variables'
 
-    if _env_flag('ALLOW_SQLITE_FALLBACK'):
-        db_path = os.path.join(BASE_DIR, 'sb_lotus_tailoring.db')
-        return f'sqlite:///{db_path}', 'ALLOW_SQLITE_FALLBACK'
-
     raise RuntimeError(MISSING_DB_CONFIG)
 
 
@@ -130,9 +122,6 @@ def _uses_transaction_pooler(uri):
 
 def _engine_options(uri):
     """create_engine kwargs tuned for a managed Postgres behind a pooler."""
-    if uri.startswith('sqlite:'):
-        return {'pool_pre_ping': True}
-
     connect_args = {
         'connect_timeout': _env_int('DB_CONNECT_TIMEOUT', 10),
         'application_name': os.environ.get('DB_APP_NAME', 'sb-lotus-tailoring'),
