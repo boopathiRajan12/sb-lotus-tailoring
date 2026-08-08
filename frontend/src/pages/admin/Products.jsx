@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../../api/client'
 import { useToast } from '../../context/ToastContext'
@@ -7,6 +7,7 @@ import { formatCurrency } from '../../api/format'
 import { productImageUrl, onImageError } from '../../components/ProductCard'
 import Icon from '../../components/Icon'
 import { ConfirmDialog, EmptyState, Stars, TableSkeleton } from '../../components/ui'
+import Pagination from '../../components/Pagination'
 
 const FILTERS = [
   { value: '', label: 'All products' },
@@ -22,17 +23,23 @@ export default function Products() {
 
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
+  const [page, setPage] = useState(1)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [busy, setBusy] = useState(false)
   const debouncedSearch = useDebounced(search, 400)
 
-  const query = useMemo(() => {
+  // Changing a filter re-filters from the top; staying on page 7 of the old
+  // result set would usually land on an empty page.
+  const filters = useMemo(() => {
     const params = new URLSearchParams()
     if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim())
     if (status) params.set('status', status)
     return params.toString()
   }, [debouncedSearch, status])
 
+  useEffect(() => { setPage(1) }, [filters])
+
+  const query = filters ? `${filters}&page=${page}` : `page=${page}`
   const { data, loading, error, reload } = useApi(`/api/admin/products?${query}`)
   const products = data?.products || []
 
@@ -200,14 +207,18 @@ export default function Products() {
       ) : (
         <EmptyState
           icon="package"
-          title={query ? 'No products match those filters' : 'No products yet'}
+          title={filters ? 'No products match those filters' : 'No products yet'}
           description={
-            query
+            filters
               ? 'Try a different search term or filter.'
               : 'Add your first product to start selling.'
           }
           action={<Link to="/admin/products/add" className="btn btn-primary">Add product</Link>}
         />
+      )}
+
+      {data?.pagination && (
+        <Pagination pagination={data.pagination} onNavigate={setPage} />
       )}
 
       <ConfirmDialog

@@ -12,12 +12,31 @@ Set up Supabase first — see [SUPABASE.md](SUPABASE.md).
 |----------|-------|----------|
 | `SUPABASE_DB_URL` | Connection URI from Supabase → Settings → Database | Yes |
 | `SECRET_KEY` | `python -c "import secrets; print(secrets.token_hex(32))"` | Yes |
-| `ADMIN_PASSWORD` | Password for the auto-created admin account | Strongly recommended |
-| `SESSION_COOKIE_SECURE` | `true` when serving over HTTPS | Auto-on for Render |
+| `ADMIN_PASSWORD` | Password for the first admin account, 10+ characters | Yes |
+| `PRODUCTION` | `true` on any host that isn't Render | Yes, off Render |
+| `SESSION_COOKIE_SECURE` | `true` when serving over HTTPS | Auto-on in production |
 
-The app refuses to start without a database URL rather than silently falling
-back to a local file — an empty SQLite database that looks like it works is a
-worse failure than a clear error.
+Three of these fail loudly rather than quietly:
+
+- **No database URL** → the app refuses to start. An empty SQLite database that
+  looks like it works is a worse failure than a clear error.
+- **No `SECRET_KEY`** (or a placeholder value) → the app refuses to start *in
+  production*. The key signs the session cookie; a known value lets anyone forge
+  an admin session.
+- **No `ADMIN_PASSWORD`** → the app starts, but creates no admin account and
+  logs a warning. There is deliberately no default password: one sitting on a
+  public URL in front of the whole admin panel is worse than having no account
+  until you set the variable.
+
+`PRODUCTION=true` (implied by Render's own `RENDER` variable) is what turns on
+Secure cookies, HSTS, and the `SECRET_KEY` check, and turns off the debug
+server. Set it anywhere else you deploy.
+
+## Health check
+
+`GET /api/health` returns `{"status": "ok", "database": "ok"}`, or HTTP 503 when
+the database is unreachable. Point your uptime monitor at it; `render.yaml`
+already sets it as the service's health check path.
 
 ---
 
@@ -30,10 +49,13 @@ the app points at Supabase.
 2. In Render: **New → Blueprint**, pick the repo. It reads `render.yaml`.
 3. Open the service's **Environment** tab and set:
    - `SUPABASE_DB_URL` — your Supabase URI
-   - `ADMIN_PASSWORD` — your admin password
+   - `ADMIN_PASSWORD` — your admin password (10+ characters)
 
-   (`SECRET_KEY` is generated for you.)
+   (`SECRET_KEY` is generated for you, and `PRODUCTION` is implied by Render.)
 4. **Manual Deploy → Deploy latest commit.**
+5. Check the log for `Admin account created: username=admin`, then log in and
+   change the password. If you see the "no admin was created" warning instead,
+   `ADMIN_PASSWORD` was missing or too short — set it and redeploy.
 
 `build.sh` builds the React app into `frontend/dist`, installs the Python
 dependencies, creates any missing tables in Supabase, and seeds sample data if
@@ -66,7 +88,8 @@ On a paid account:
    ```ini
    SUPABASE_DB_URL=postgresql://postgres.<ref>:<password>@<host>:5432/postgres
    SECRET_KEY=<a long random string>
-   ADMIN_PASSWORD=<your admin password>
+   ADMIN_PASSWORD=<your admin password, 10+ characters>
+   PRODUCTION=true
    SESSION_COOKIE_SECURE=true
    ```
 
@@ -111,7 +134,8 @@ On a paid account:
 ```bash
 export SUPABASE_DB_URL='postgresql://...'
 export SECRET_KEY='...'
-export SESSION_COOKIE_SECURE=true
+export ADMIN_PASSWORD='...'
+export PRODUCTION=true
 
 pip install -r requirements.txt
 cd frontend && npm install && npm run build && cd ..
@@ -130,7 +154,7 @@ handle pooling instead.
 
 | Role | Username | Password |
 |------|----------|----------|
-| Admin | `admin` | your `ADMIN_PASSWORD` (`admin123` if you didn't set one) |
+| Admin | `admin` | your `ADMIN_PASSWORD` (no default — unset means no admin account) |
 | Customer | Register a new account at `/register` | |
 
 The admin account is created on first startup only. Changing `ADMIN_PASSWORD`

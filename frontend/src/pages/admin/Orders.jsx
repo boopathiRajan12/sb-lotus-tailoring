@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApi, useDebounced, usePageTitle } from '../../hooks/useApi'
 import { formatCurrency, formatDate } from '../../api/format'
 import Icon from '../../components/Icon'
 import { EmptyState, StatusBadge, TableSkeleton } from '../../components/ui'
+import Pagination from '../../components/Pagination'
 
 const STATUSES = ['pending', 'confirmed', 'stitching', 'ready', 'delivered', 'cancelled']
 const RANGES = [
@@ -18,8 +19,11 @@ export default function Orders() {
   const [status, setStatus] = useState('')
   const [days, setDays] = useState('')
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const debouncedSearch = useDebounced(search, 400)
 
+  // `query` drives both the table request and the CSV export link, so it stays
+  // page-free: an export should cover the whole filtered set, not one page.
   const query = useMemo(() => {
     const params = new URLSearchParams()
     if (status) params.set('status', status)
@@ -28,7 +32,11 @@ export default function Orders() {
     return params.toString()
   }, [status, days, debouncedSearch])
 
-  const { data, loading, error } = useApi(`/api/admin/orders?${query}`)
+  useEffect(() => { setPage(1) }, [query])
+
+  const { data, loading, error } = useApi(
+    `/api/admin/orders?${query ? `${query}&` : ''}page=${page}`
+  )
   const orders = data?.orders || []
   const hasFilters = Boolean(status || days || debouncedSearch)
 
@@ -161,6 +169,10 @@ export default function Orders() {
             )
           }
         />
+      )}
+
+      {data?.pagination && (
+        <Pagination pagination={data.pagination} onNavigate={setPage} />
       )}
     </>
   )

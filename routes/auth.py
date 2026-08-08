@@ -4,42 +4,90 @@ Both regular users and admins use the same login endpoint.
 Admin accounts are identified by the is_admin flag.
 """
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from flask import Blueprint, jsonify, request
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
-from models import db, User, Order
+from models import db, User, Order, utcnow
 from .helpers import payload, get_str, get_bool, error, clean_measurements, EMAIL_RE, PHONE_RE
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 MIN_PASSWORD_LENGTH = 6
-# Simple in-process throttle. Enough to blunt credential stuffing on a
-# single-instance deployment; swap for Redis if the app is ever scaled out.
-MAX_LOGIN_ATTEMPTS = 8
-LOCKOUT_WINDOW = timedelta(minutes=10)
+
+# ─── Login throttling ────────────────────────────────────────────────────────
+# Failures are counted against two independent keys:
+#
+#   * the account being targeted - the one an attacker cannot rotate, and so
+#     the limit that actually stops credential stuffing against one user;
+#   * the client IP - looser, to catch someone spraying many accounts.
+#
+# The IP is taken from `request.remote_addr`, which ProxyFix populates from the
+# proxy's own X-Forwarded-For entry. Reading the raw header here (as this used
+# to) trusts a value the client controls, and rotating it bypassed the limit
+# entirely.
+#
+# This is per-process state, so N gunicorn workers allow up to N times the
+# nominal budget. That is a deliberate trade for zero infrastructure; move the
+# counters to Redis if this app is ever scaled beyond one instance.
+MAX_ATTEMPTS_PER_ACCOUNT = 8
+MAX_ATTEMPTS_PER_IP = 30
+LOCKOUT_WINDOW = timedelta(minutes=15)
+
+# Hard ceiling on tracked keys so a spray across many identifiers cannot grow
+# the dict without bound.
+_MAX_TRACKED_KEYS = 8192
 _login_attempts = {}
 
 
-def _throttle_key():
-    return request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
+def _client_ip():
+    return request.remote_addr or 'unknown'
 
 
-def _is_locked_out(key):
-    attempts, first_seen = _login_attempts.get(key, (0, datetime.utcnow()))
-    if datetime.utcnow() - first_seen > LOCKOUT_WINDOW:
-        _login_attempts.pop(key, None)
-        return False
-    return attempts >= MAX_LOGIN_ATTEMPTS
+def _prune(now):
+    """Drop expired counters, and the oldest ones if still over the cap."""
+    expired = [key for key, (_, seen) in _login_attempts.items() if now - seen > LOCKOUT_WINDOW]
+    for key in expired:
+        del _login_attempts[key]
+
+    overflow = len(_login_attempts) - _MAX_TRACKED_KEYS
+    if overflow > 0:
+        oldest = sorted(_login_attempts, key=lambda k: _login_attempts[k][1])[:overflow]
+        for key in oldest:
+            del _login_attempts[key]
 
 
-def _record_failure(key):
-    attempts, first_seen = _login_attempts.get(key, (0, datetime.utcnow()))
-    if datetime.utcnow() - first_seen > LOCKOUT_WINDOW:
-        attempts, first_seen = 0, datetime.utcnow()
-    _login_attempts[key] = (attempts + 1, first_seen)
+def _attempts(key, now):
+    attempts, first_seen = _login_attempts.get(key, (0, now))
+    if now - first_seen > LOCKOUT_WINDOW:
+        return 0, now
+    return attempts, first_seen
+
+
+def _is_locked_out(username):
+    """True when either the target account or this IP is over its budget."""
+    now = utcnow()
+    limits = (
+        (('ip', _client_ip()), MAX_ATTEMPTS_PER_IP),
+        (('user', username.lower()), MAX_ATTEMPTS_PER_ACCOUNT),
+    )
+    return any(_attempts(key, now)[0] >= limit for key, limit in limits)
+
+
+def _record_failure(username):
+    now = utcnow()
+    _prune(now)
+    for key in (('ip', _client_ip()), ('user', username.lower())):
+        attempts, first_seen = _attempts(key, now)
+        _login_attempts[key] = (attempts + 1, first_seen)
+
+
+def _clear_failures(username):
+    _login_attempts.pop(('ip', _client_ip()), None)
+    _login_attempts.pop(('user', username.lower()), None)
 
 
 def _validate_password(password, confirm):
@@ -86,7 +134,13 @@ def register():
     user = User(username=username, email=email, phone=phone, address=address)
     user.set_password(password)
     db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Two signups for the same name/email can pass the checks above
+        # concurrently; the database's unique indexes are the real arbiter.
+        db.session.rollback()
+        return error('That username or email is already registered.')
 
     return jsonify({'message': 'Registration successful! Please log in.'}), 201
 
@@ -97,14 +151,16 @@ def login():
     if current_user.is_authenticated:
         return jsonify({'message': 'Already logged in.', 'user': current_user.to_dict()})
 
-    key = _throttle_key()
-    if _is_locked_out(key):
-        return error('Too many failed attempts. Please try again in a few minutes.', 429)
-
     data = payload()
     username = get_str(data, 'username')
     password = data.get('password') or ''
     remember = get_bool(data, 'remember', default=True)
+
+    if not username or not password:
+        return error('Username and password are required.')
+
+    if _is_locked_out(username):
+        return error('Too many failed attempts. Please try again in a few minutes.', 429)
 
     # Accept either the username or the email address as the identifier.
     user = User.query.filter(
@@ -115,11 +171,11 @@ def login():
     if user and user.check_password(password):
         if not user.is_active_account:
             return error('This account has been suspended. Please contact the shop.', 403)
-        _login_attempts.pop(key, None)
+        _clear_failures(username)
         login_user(user, remember=remember)
         return jsonify({'message': f'Welcome back, {user.username}!', 'user': user.to_dict()})
 
-    _record_failure(key)
+    _record_failure(username)
     return error('Invalid username or password.', 401)
 
 

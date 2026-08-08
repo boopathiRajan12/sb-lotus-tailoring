@@ -96,7 +96,8 @@ This starts the React app at `http://localhost:5173`, which proxies API calls to
 ### Admin Login
 - URL: `http://localhost:5173/login`
 - Username: `admin`
-- Password: whatever you set as `ADMIN_PASSWORD` in `.env` (`admin123` if unset)
+- Password: whatever you set as `ADMIN_PASSWORD` in `.env` (10+ characters;
+  if it is unset, no admin account is created and startup logs a warning)
 - Admin dashboard: `http://localhost:5173/admin`
 
 ### Admin Workflow

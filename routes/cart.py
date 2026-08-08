@@ -42,6 +42,35 @@ def _cart_response(cart_items):
     }
 
 
+def _lock_cart_products(cart_items):
+    """Take a row lock on every product in the cart, for the checkout window.
+
+    Checking stock and then decrementing it are two statements; without a lock
+    two concurrent checkouts both see the last item available and both sell it.
+    `SELECT ... FOR UPDATE` serialises them, and the lock is released by the
+    commit (or rollback) that ends the request.
+
+    `populate_existing()` matters: the products are already in the session's
+    identity map from `_load_cart`, and SQLAlchemy would otherwise hand back
+    those stale instances without applying the freshly locked values.
+
+    Ordering by id gives every request the same lock acquisition order, so two
+    overlapping checkouts of the same two products cannot deadlock. On SQLite
+    (used by the tests) FOR UPDATE is not supported and is silently omitted -
+    harmless, since its writes are serialised by a database-level lock anyway.
+    """
+    product_ids = {item.product_id for item in cart_items if item.product_id}
+    if not product_ids:
+        return
+
+    (db.session.query(Product)
+     .filter(Product.id.in_(product_ids))
+     .order_by(Product.id)
+     .populate_existing()
+     .with_for_update()
+     .all())
+
+
 @cart_bp.route('/cart')
 @login_required
 def view_cart():
@@ -162,7 +191,12 @@ def checkout_summary():
 @cart_bp.route('/checkout', methods=['POST'])
 @login_required
 def checkout():
-    """Place an order from the current cart."""
+    """Place an order from the current cart.
+
+    No payment is taken here, by design: orders are settled with the shop
+    directly. No payment provider is integrated and no card details are
+    collected or stored anywhere in this codebase.
+    """
     cart_items = _load_cart()
     if not cart_items:
         return error('Your cart is empty.')
@@ -177,8 +211,11 @@ def checkout():
     if len(phone) > 15:
         return error('Please enter a valid phone number.')
 
+    _lock_cart_products(cart_items)
+
     # Re-check availability at the moment of purchase - stock may have moved
-    # since the item was added to the cart.
+    # since the item was added to the cart. The rows are locked above, so the
+    # values read here still hold when they are decremented below.
     for item in cart_items:
         product = item.product
         if not product or not product.is_active:
@@ -252,10 +289,12 @@ def cancel_order(order_id):
     order.cancel_reason = reason or None
     order.set_status('cancelled', note=reason or 'Cancelled by customer.')
 
-    # Put reserved stock back on the shelf.
+    # Put reserved stock back on the shelf. `Product.stock + n` is evaluated by
+    # the database rather than in Python, so a concurrent checkout decrementing
+    # the same row cannot clobber the increment.
     for item in order.items:
         if item.product and not item.product.is_made_to_order:
-            item.product.stock += item.quantity
+            item.product.stock = Product.stock + item.quantity
 
     db.session.commit()
     return jsonify({'message': f'Order #{order.id} has been cancelled.', 'order': order.to_dict()})

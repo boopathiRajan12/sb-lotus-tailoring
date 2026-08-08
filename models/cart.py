@@ -3,8 +3,7 @@ CartItem model - tracks items in a user's shopping cart.
 Each row links a user to a product with a quantity.
 """
 import json
-from datetime import datetime
-from .database import db
+from .database import db, utcnow
 
 
 class CartItem(db.Model):
@@ -16,7 +15,7 @@ class CartItem(db.Model):
     quantity = db.Column(db.Integer, default=1, nullable=False)
     # For custom blouse orders, store selected measurements
     measurements = db.Column(db.Text, nullable=True)
-    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+    added_at = db.Column(db.DateTime, default=utcnow)
 
     def __repr__(self):
         return f'<CartItem user={self.user_id} product={self.product_id} qty={self.quantity}>'

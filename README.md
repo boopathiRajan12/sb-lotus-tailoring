@@ -14,8 +14,11 @@ Full walkthrough: **[SUPABASE.md](SUPABASE.md)** · Local dev: [SETUP.md](SETUP.
 
 | Role | Username | Password |
 |------|----------|----------|
-| Admin | `admin` | your `ADMIN_PASSWORD` env var (`admin123` if unset) |
+| Admin | `admin` | your `ADMIN_PASSWORD` env var |
 | Customer | Register at `/register` | |
+
+There is no default admin password. If `ADMIN_PASSWORD` is unset or shorter than
+10 characters, no admin account is created and the startup log says so.
 
 ## Features
 
@@ -87,16 +90,35 @@ New columns added after the initial release are applied automatically at startup
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `SUPABASE_DB_URL` | Supabase connection URI | **Required** — the app won't start without it |
-| `SECRET_KEY` | Session signing key | Development placeholder — **set this in production** |
-| `ADMIN_PASSWORD` | Password for the auto-created admin | `admin123` |
-| `SESSION_COOKIE_SECURE` | Force HTTPS-only session cookies | On when `RENDER` is set, off locally |
+| `SECRET_KEY` | Session signing key | **Required in production** — the app won't start on a placeholder |
+| `ADMIN_PASSWORD` | Password for the first admin account (10+ chars) | None — no admin is created without it |
+| `PRODUCTION` | Secure cookies + HSTS on, debug server off, `SECRET_KEY` enforced | On when `RENDER` is set |
+| `ADMIN_USERNAME` / `ADMIN_EMAIL` | Identity of that first admin account | `admin` / `admin@sblotus.com` |
+| `SESSION_COOKIE_SECURE` | Force HTTPS-only session cookies | On in production, off locally |
 | `DATABASE_URL` | Alias for `SUPABASE_DB_URL`, for hosts that inject it | — |
 | `SUPABASE_DB_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_NAME` | Connection parts, assembled and URL-encoded here | Use instead of `SUPABASE_DB_URL` when the password has special characters |
 | `DB_AUTO_CREATE` | Run `create_all()` + column patches at startup | `true` |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` / `DB_POOL_RECYCLE` | SQLAlchemy pool sizing | `5` / `2` / `280` |
-| `ALLOW_SQLITE_FALLBACK` | Offline dev against a local SQLite file | `false` |
 
 See `.env.example`.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+The suite runs against in-memory SQLite, so it never touches Supabase and needs
+no environment set up. It covers authentication and login throttling, cart and
+checkout stock accounting, order cancellation, admin authorisation, image
+upload handling, and the security configuration in `app.py` / `config.py`.
+
+## Scope note: payments
+
+Checkout places an order without taking payment — orders are settled with the
+shop directly. There is no payment provider integrated, and no card data is
+collected or stored anywhere in this codebase.
 
 ## API Overview
 

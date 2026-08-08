@@ -19,16 +19,31 @@ function iterPages(page, pages, leftEdge = 1, rightEdge = 1, leftCurrent = 2, ri
   return result
 }
 
-export default function Pagination({ pagination, buildHref }) {
+// One page control, rendered as a link when the page lives in the URL and as a
+// button when it lives in component state. Declared at module scope so React
+// sees the same component type across renders.
+function PageLink({ to, buildHref, onNavigate, children, ...rest }) {
+  if (buildHref) {
+    return <Link to={buildHref(to)} {...rest}>{children}</Link>
+  }
+  return <button type="button" onClick={() => onNavigate(to)} {...rest}>{children}</button>
+}
+
+// Pass `buildHref` on pages whose filters live in the URL, or `onNavigate` on
+// pages that hold them in local state (the admin tables) - there is no route to
+// link to there, so the same markup renders as buttons instead.
+export default function Pagination({ pagination, buildHref, onNavigate }) {
   const { page, pages, has_prev: hasPrev, has_next: hasNext } = pagination
   if (pages <= 1) return null
+
+  const nav = { buildHref, onNavigate }
 
   return (
     <nav className="pagination" aria-label="Pagination">
       {hasPrev && (
-        <Link to={buildHref(page - 1)} aria-label="Previous page">
+        <PageLink to={page - 1} {...nav} aria-label="Previous page">
           <Icon name="chevronLeft" size={16} />
-        </Link>
+        </PageLink>
       )}
 
       {iterPages(page, pages).map((num, idx) =>
@@ -37,14 +52,14 @@ export default function Pagination({ pagination, buildHref }) {
         ) : num === page ? (
           <span key={num} className="active-page" aria-current="page">{num}</span>
         ) : (
-          <Link key={num} to={buildHref(num)}>{num}</Link>
+          <PageLink key={num} to={num} {...nav}>{num}</PageLink>
         )
       )}
 
       {hasNext && (
-        <Link to={buildHref(page + 1)} aria-label="Next page">
+        <PageLink to={page + 1} {...nav} aria-label="Next page">
           <Icon name="chevronRight" size={16} />
-        </Link>
+        </PageLink>
       )}
     </nav>
   )

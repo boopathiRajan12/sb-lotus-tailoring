@@ -10,13 +10,13 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request, current_app, Response
 from flask_login import current_user
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import joinedload
 from werkzeug.utils import secure_filename
 
 from models import (
     db, Product, ProductImage, Category, Order, OrderItem, User, Review,
-    ORDER_STATUSES, ORDER_FLOW,
+    ORDER_STATUSES, ORDER_FLOW, utcnow,
 )
 from .helpers import payload, get_str, get_int, get_float, get_bool, error, admin_required
 
@@ -25,11 +25,49 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 # Statuses that count as realised revenue.
 REVENUE_STATUSES = tuple(s for s in ORDER_FLOW)
 
+# Admin tables are paginated: an unbounded `.all()` serialises every row (and,
+# for orders, every line item and status-history entry) into one response, which
+# grows without limit as the shop does.
+ADMIN_PER_PAGE = 25
+
+
+def _paginate(query, per_page=ADMIN_PER_PAGE):
+    """Paginate `query` from the `page` query parameter."""
+    page = max(1, request.args.get('page', 1, type=int) or 1)
+    return query.paginate(page=page, per_page=per_page, error_out=False)
+
+
+def _pagination_payload(pagination):
+    return {
+        'page': pagination.page,
+        'pages': pagination.pages,
+        'total': pagination.total,
+        'per_page': pagination.per_page,
+        'has_next': pagination.has_next,
+        'has_prev': pagination.has_prev,
+    }
+
+
+# The MIME type served back for each permitted extension. The browser's own
+# Content-Type header is NOT used: it is attacker-supplied, and echoing it back
+# from /product-image/<id> would let an upload be served as text/html from this
+# origin - stored XSS against every visitor, admin-authored or not.
+EXTENSION_MIMETYPES = {
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+}
+
+
+def _extension(filename):
+    return filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+
 
 def allowed_file(filename):
     """Check if the uploaded file has an allowed extension."""
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
+    return _extension(filename) in current_app.config['ALLOWED_EXTENSIONS']
 
 
 def save_image(file):
@@ -43,7 +81,7 @@ def save_image(file):
     filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], unique_name)
 
     file_data = file.read()
-    mimetype = file.content_type or 'image/jpeg'
+    mimetype = EXTENSION_MIMETYPES.get(_extension(filename), 'application/octet-stream')
 
     with open(filepath, 'wb') as f:
         f.write(file_data)
@@ -53,7 +91,7 @@ def save_image(file):
 
 def _month_start(offset=0):
     """First instant of the month, `offset` months back from today."""
-    now = datetime.utcnow()
+    now = utcnow()
     year, month = now.year, now.month - offset
     while month <= 0:
         month += 12
@@ -94,7 +132,7 @@ def dashboard():
     revenue_series = []
     for offset in range(5, -1, -1):
         start = _month_start(offset)
-        end = _month_start(offset - 1) if offset > 0 else datetime.utcnow() + timedelta(days=1)
+        end = _month_start(offset - 1) if offset > 0 else utcnow() + timedelta(days=1)
         amount = db.session.query(func.coalesce(func.sum(Order.total_amount), 0.0)) \
             .filter(revenue_filter, Order.created_at >= start, Order.created_at < end).scalar() or 0.0
         count = Order.query.filter(Order.created_at >= start, Order.created_at < end).count()
@@ -268,10 +306,11 @@ def products():
     elif status == 'custom':
         query = query.filter(Product.is_custom_blouse.is_(True))
 
-    all_products = query.order_by(Product.created_at.desc()).all()
+    pagination = _paginate(query.order_by(Product.created_at.desc()))
     return jsonify({
-        'products': [p.to_dict() for p in all_products],
-        'total': len(all_products),
+        'products': [p.to_dict() for p in pagination.items],
+        'total': pagination.total,
+        'pagination': _pagination_payload(pagination),
     })
 
 
@@ -441,18 +480,24 @@ def delete_product_image(image_id):
 
 # ─── Order Management ───────────────────────────────────────────────────────
 
-def _filtered_orders():
-    """Order query honouring the status / search / date query parameters."""
+def _filtered_orders(eager=True):
+    """Order query honouring the status / search / date query parameters.
+
+    `eager=False` drops the eager-loading options, for callers that aggregate
+    rather than serialise - there is no point joining in items to sum a column.
+    """
     status = request.args.get('status')
     search = (request.args.get('q') or '').strip()
     days = request.args.get('days', type=int)
 
-    query = Order.query.options(joinedload(Order.user), joinedload(Order.items))
+    query = Order.query
+    if eager:
+        query = query.options(joinedload(Order.user), joinedload(Order.items))
 
     if status and status in ORDER_STATUSES:
         query = query.filter(Order.status == status)
     if days:
-        query = query.filter(Order.created_at >= datetime.utcnow() - timedelta(days=days))
+        query = query.filter(Order.created_at >= utcnow() - timedelta(days=days))
 
     if search:
         like = f'%{search}%'
@@ -476,14 +521,23 @@ def _filtered_orders():
 @admin_bp.route('/orders')
 @admin_required
 def orders():
-    """All orders, with optional status/search/date filtering."""
-    all_orders = _filtered_orders().all()
-    revenue = sum(o.total_amount for o in all_orders if o.status != 'cancelled')
+    """Orders page, with optional status/search/date filtering."""
+    pagination = _paginate(_filtered_orders())
+
+    # Revenue covers the whole filtered set, not just the visible page, so it is
+    # summed in the database rather than over `pagination.items`.
+    revenue = (_filtered_orders(eager=False)
+               .filter(Order.status != 'cancelled')
+               .with_entities(func.coalesce(func.sum(Order.total_amount), 0.0))
+               .order_by(None)
+               .scalar()) or 0.0
+
     return jsonify({
-        'orders': [o.to_dict(include_user=True) for o in all_orders],
-        'total': len(all_orders),
-        'filtered_revenue': revenue,
+        'orders': [o.to_dict(include_user=True) for o in pagination.items],
+        'total': pagination.total,
+        'filtered_revenue': float(revenue),
         'statuses': list(ORDER_STATUSES),
+        'pagination': _pagination_payload(pagination),
     })
 
 
@@ -511,7 +565,7 @@ def export_orders():
             (order.notes or '').replace('\n', ' '),
         ])
 
-    filename = f'sb-lotus-orders-{datetime.utcnow():%Y-%m-%d}.csv'
+    filename = f'sb-lotus-orders-{utcnow():%Y-%m-%d}.csv'
     return Response(
         buffer.getvalue(),
         mimetype='text/csv',
@@ -550,16 +604,22 @@ def update_order_status(order_id):
     order.set_status(new_status, note=note or None)
 
     # Cancelling releases reserved stock; reinstating an order takes it back.
+    # Both use a SQL-side expression rather than a Python read-modify-write, so
+    # a concurrent checkout on the same product cannot overwrite the change.
     if new_status == 'cancelled' and not was_cancelled:
         order.cancel_reason = note or None
         for item in order.items:
             if item.product and not item.product.is_made_to_order:
-                item.product.stock += item.quantity
+                item.product.stock = Product.stock + item.quantity
     elif was_cancelled and new_status != 'cancelled':
         order.cancel_reason = None
         for item in order.items:
             if item.product and not item.product.is_made_to_order:
-                item.product.stock = max(0, item.product.stock - item.quantity)
+                # Floor at zero without reading the value first. `case` is used
+                # rather than GREATEST/MAX because those differ between
+                # Postgres and SQLite.
+                restored = Product.stock - item.quantity
+                item.product.stock = case((restored < 0, 0), else_=restored)
 
     db.session.commit()
     return jsonify({
@@ -580,16 +640,20 @@ def users():
     if search:
         like = f'%{search}%'
         query = query.filter(or_(User.username.ilike(like), User.email.ilike(like)))
-    all_users = query.order_by(User.created_at.desc()).all()
 
-    # One grouped query instead of two per user.
-    stats_rows = dict()
-    for user_id, count, spent in (
-        db.session.query(Order.user_id, func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
-        .filter(Order.status != 'cancelled')
-        .group_by(Order.user_id).all()
-    ):
-        stats_rows[user_id] = (count, float(spent or 0))
+    pagination = _paginate(query.order_by(User.created_at.desc()))
+    page_users = pagination.items
+
+    # One grouped query for the whole page instead of two per user.
+    stats_rows = {}
+    if page_users:
+        for user_id, count, spent in (
+            db.session.query(Order.user_id, func.count(Order.id), func.coalesce(func.sum(Order.total_amount), 0.0))
+            .filter(Order.status != 'cancelled',
+                    Order.user_id.in_([u.id for u in page_users]))
+            .group_by(Order.user_id).all()
+        ):
+            stats_rows[user_id] = (count, float(spent or 0))
 
     user_stats = [
         {
@@ -597,12 +661,13 @@ def users():
             'total_orders': stats_rows.get(user.id, (0, 0.0))[0],
             'total_spent': stats_rows.get(user.id, (0, 0.0))[1],
         }
-        for user in all_users
+        for user in page_users
     ]
 
     first_of_month = _month_start()
     return jsonify({
         'user_stats': user_stats,
+        'pagination': _pagination_payload(pagination),
         'total_users': User.query.filter_by(is_admin=False).count(),
         'new_users_month': User.query.filter(
             User.is_admin.is_(False), User.created_at >= first_of_month

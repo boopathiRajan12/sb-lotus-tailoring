@@ -9,11 +9,14 @@ services:
     runtime: python
     buildCommand: chmod +x build.sh && ./build.sh
     startCommand: gunicorn wsgi:application --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/health
     envVars:
       - key: SUPABASE_DB_URL
         sync: false        # set this by hand - it holds the database password
       - key: SECRET_KEY
         generateValue: true
+      # No default and no fallback: until this is set, the first admin account
+      # is not created and the startup log says so.
       - key: ADMIN_PASSWORD
         sync: false
       - key: PYTHON_VERSION

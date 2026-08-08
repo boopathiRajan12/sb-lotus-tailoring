@@ -1,22 +1,28 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApi, useDebounced, usePageTitle } from '../../hooks/useApi'
 import { formatCurrency, formatDate, initials } from '../../api/format'
 import Icon from '../../components/Icon'
 import { CardsSkeleton, EmptyState, TableSkeleton } from '../../components/ui'
+import Pagination from '../../components/Pagination'
 
 export default function Users() {
   usePageTitle('Admin Customers')
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const debouncedSearch = useDebounced(search, 400)
 
-  const query = useMemo(() => {
+  const filters = useMemo(() => {
     const params = new URLSearchParams()
     if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim())
     return params.toString()
   }, [debouncedSearch])
 
-  const { data, loading, error } = useApi(`/api/admin/users?${query}`)
+  useEffect(() => { setPage(1) }, [filters])
+
+  const { data, loading, error } = useApi(
+    `/api/admin/users?${filters ? `${filters}&` : ''}page=${page}`
+  )
   const stats = data?.user_stats || []
 
   return (
@@ -125,6 +131,10 @@ export default function Users() {
               : 'Customers appear here once they register on the shop.'
           }
         />
+      )}
+
+      {data?.pagination && (
+        <Pagination pagination={data.pagination} onNavigate={setPage} />
       )}
     </>
   )

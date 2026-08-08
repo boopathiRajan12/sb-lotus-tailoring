@@ -39,7 +39,7 @@ Then edit `.env`:
 ```ini
 SUPABASE_DB_URL=postgresql://postgres.abcdefgh:my-password@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
 SECRET_KEY=<python -c "import secrets; print(secrets.token_hex(32))">
-ADMIN_PASSWORD=<something other than admin123>
+ADMIN_PASSWORD=<at least 10 characters>
 ```
 
 > If your password contains `@`, `/`, `#`, `?` or `%`, don't paste it into the
@@ -148,8 +148,8 @@ Check it under Dashboard → Table Editor: every table should show an
 
 Other things worth doing:
 
-- Change `ADMIN_PASSWORD` from the `admin123` default before the first startup —
-  that is when the admin account gets created.
+- Set `ADMIN_PASSWORD` before the first startup — that is when the admin
+  account gets created, and there is no default password to fall back on.
 - Keep `.env` out of git (it already is) and never paste the database password
   or the `service_role` key into frontend code.
 - Free-tier projects pause after a week of inactivity; the first request after

@@ -159,6 +159,17 @@ CREATE INDEX IF NOT EXISTS idx_wishlist_product       ON public.wishlist_items (
 CREATE INDEX IF NOT EXISTS idx_reviews_product        ON public.reviews (product_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_user           ON public.reviews (user_id);
 
+-- Case-insensitive uniqueness. The application treats "Priya" and "priya" as
+-- the same account, but the plain UNIQUE constraints above are case-sensitive -
+-- so without these, two concurrent signups both pass the application's check
+-- and both commit. These are also created at startup by app.py's _migrate_db().
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_lower
+    ON public.users (lower(email));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_username_lower
+    ON public.users (lower(username));
+CREATE UNIQUE INDEX IF NOT EXISTS uq_categories_name_lower
+    ON public.categories (lower(name));
+
 -- ============================================================================
 -- SECURITY - read this before deciding to skip it
 --

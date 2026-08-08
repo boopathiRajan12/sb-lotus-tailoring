@@ -6,10 +6,9 @@ Customers can save a default set of body measurements on their profile; the
 custom-blouse form pre-fills from it so repeat orders don't need re-measuring.
 """
 import json
-from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin
-from .database import db
+from .database import db, utcnow
 
 # Measurement keys shared by the profile, cart items, and order items.
 MEASUREMENT_KEYS = ('bust', 'waist', 'shoulder', 'sleeve', 'blength', 'armhole')
@@ -29,7 +28,7 @@ class User(UserMixin, db.Model):
     is_active_account = db.Column(db.Boolean, default=True, nullable=False)
     # Saved default measurements, stored as a JSON object.
     measurements = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     cart_items = db.relationship('CartItem', backref='user', lazy=True, cascade='all, delete-orphan')

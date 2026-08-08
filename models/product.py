@@ -6,8 +6,7 @@ Rating totals are denormalised onto the row (`rating_count` / `rating_avg`) so
 product listings can sort and display stars without an N+1 review query. Call
 `refresh_rating()` whenever a review is written or removed.
 """
-from datetime import datetime
-from .database import db
+from .database import db, utcnow
 
 
 class Product(db.Model):
@@ -30,8 +29,8 @@ class Product(db.Model):
     # Denormalised review aggregates
     rating_count = db.Column(db.Integer, default=0, nullable=False)
     rating_avg = db.Column(db.Float, default=0.0, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     images = db.relationship('ProductImage', backref='product', lazy=True, cascade='all, delete-orphan')

@@ -7,8 +7,7 @@ OrderStatusHistory = an append-only audit trail of status changes, which the
 customer sees as a delivery timeline.
 """
 import json
-from datetime import datetime
-from .database import db
+from .database import db, utcnow
 
 # The happy-path lifecycle, in order. `cancelled` sits outside it.
 ORDER_FLOW = ('pending', 'confirmed', 'stitching', 'ready', 'delivered')
@@ -30,8 +29,8 @@ class Order(db.Model):
     notes = db.Column(db.Text, nullable=True)
     # Free-text note captured when an order is cancelled
     cancel_reason = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     # Relationships
     items = db.relationship('OrderItem', backref='order', lazy=True, cascade='all, delete-orphan')
@@ -122,7 +121,7 @@ class OrderStatusHistory(db.Model):
     order_id = db.Column(db.Integer, db.ForeignKey('orders.id'), nullable=False)
     status = db.Column(db.String(30), nullable=False)
     note = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     def __repr__(self):
         return f'<OrderStatusHistory order={self.order_id} status={self.status}>'

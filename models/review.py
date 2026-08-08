@@ -4,8 +4,7 @@ Review model - customer ratings and written feedback on a product.
 A review is marked `is_verified` when the reviewer has actually ordered the
 product, which the UI surfaces as a "Verified purchase" badge.
 """
-from datetime import datetime
-from .database import db
+from .database import db, utcnow
 
 
 class Review(db.Model):
@@ -19,8 +18,8 @@ class Review(db.Model):
     title = db.Column(db.String(150), nullable=True)
     comment = db.Column(db.Text, nullable=True)
     is_verified = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
+    updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
     def __repr__(self):
         return f'<Review product={self.product_id} rating={self.rating}>'

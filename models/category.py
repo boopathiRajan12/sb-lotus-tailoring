@@ -3,8 +3,7 @@ Category model - organizes products into groups.
 Examples: Blouse, School Uniform, Sudithar, Tops, Pants, Pavadai & Sattai,
           Sarees, Ready-made items, etc.
 """
-from datetime import datetime
-from .database import db
+from .database import db, utcnow
 
 
 class Category(db.Model):
@@ -15,7 +14,7 @@ class Category(db.Model):
     description = db.Column(db.Text, nullable=True)
     # 'stitching' for current services, 'readymade' for future ready-made items
     category_type = db.Column(db.String(20), default='stitching', nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
 
     # Relationships
     products = db.relationship('Product', backref='category', lazy=True)

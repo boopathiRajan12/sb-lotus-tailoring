@@ -11,10 +11,14 @@ Resolution order for the connection string:
   3. SUPABASE_DB_HOST/_PORT/_USER/_PASSWORD/_NAME - assembled here, which
      also URL-encodes the password for you
 """
+import logging
 import os
+from datetime import timedelta
 from urllib.parse import parse_qsl, quote_plus, urlencode, urlsplit, urlunsplit
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+log = logging.getLogger(__name__)
 
 # Load .env before anything reads os.environ. python-dotenv is in
 # requirements.txt; the guard just keeps the app bootable without it.
@@ -42,6 +46,11 @@ def _env_int(name, default):
         return int(os.environ.get(name, default))
     except (TypeError, ValueError):
         return default
+
+
+# Render sets RENDER=true on every service, so it doubles as the "this is a real
+# deployment" signal. Any other host can set PRODUCTION=true by hand.
+IS_PRODUCTION = _env_flag('PRODUCTION', default=bool(os.environ.get('RENDER')))
 
 
 def _normalise_db_url(url):
@@ -113,6 +122,46 @@ def _resolve_database_uri():
     raise RuntimeError(MISSING_DB_CONFIG)
 
 
+MISSING_SECRET_KEY = """
+No SECRET_KEY configured.
+
+SECRET_KEY signs the session cookie. With a known or default value, anyone can
+forge a session for any account - including the admin - so the app refuses to
+start in production without one.
+
+Generate one and set it in the environment:
+
+    python -c "import secrets; print(secrets.token_hex(32))"
+""".strip()
+
+# Placeholder used for local development only. Values that have ever appeared in
+# the repository are worthless as secrets, so they are rejected outright rather
+# than silently accepted from the environment.
+DEV_SECRET_KEY = 'dev-only-insecure-key'
+_KNOWN_BAD_SECRETS = {
+    '',
+    DEV_SECRET_KEY,
+    'change-me',
+    'sb-lotus-tailoring-secret-key-change-in-production',
+}
+
+
+def _resolve_secret_key():
+    """Return the signing key, refusing to run on a known-bad one in production."""
+    key = os.environ.get('SECRET_KEY', '').strip()
+    if key not in _KNOWN_BAD_SECRETS:
+        return key
+
+    if IS_PRODUCTION:
+        raise RuntimeError(MISSING_SECRET_KEY)
+
+    log.warning(
+        'SECRET_KEY is unset - using an insecure development key. '
+        'Sessions signed with it are forgeable; never deploy this way.'
+    )
+    return DEV_SECRET_KEY
+
+
 def _uses_transaction_pooler(uri):
     try:
         return urlsplit(uri).port == TRANSACTION_POOLER_PORT
@@ -122,6 +171,11 @@ def _uses_transaction_pooler(uri):
 
 def _engine_options(uri):
     """create_engine kwargs tuned for a managed Postgres behind a pooler."""
+    if not uri.startswith('postgresql'):
+        # Every option below is psycopg2-specific and blows up on any other
+        # driver. The test suite runs on in-memory SQLite, which needs none of it.
+        return {}
+
     connect_args = {
         'connect_timeout': _env_int('DB_CONNECT_TIMEOUT', 10),
         'application_name': os.environ.get('DB_APP_NAME', 'sb-lotus-tailoring'),
@@ -152,7 +206,8 @@ def _engine_options(uri):
 
 class Config:
     # Secret key for session management and CSRF protection
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'sb-lotus-tailoring-secret-key-change-in-production')
+    SECRET_KEY = _resolve_secret_key()
+    PRODUCTION = IS_PRODUCTION
 
     # ── Database (Supabase PostgreSQL) ───────────────────────────────────────
     SQLALCHEMY_DATABASE_URI, DATABASE_URI_SOURCE = _resolve_database_uri()
@@ -169,10 +224,18 @@ class Config:
     # cross-site POSTs that would otherwise be CSRF-able.
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
-    # Secure cookies require HTTPS - on by default in production (Render sets
-    # RENDER), off locally so plain-HTTP dev still works.
-    SESSION_COOKIE_SECURE = _env_flag('SESSION_COOKIE_SECURE', default=bool(os.environ.get('RENDER')))
-    PERMANENT_SESSION_LIFETIME = 60 * 60 * 24 * 14  # 14 days
+    # Secure cookies require HTTPS - on by default in production, off locally so
+    # plain-HTTP dev still works.
+    SESSION_COOKIE_SECURE = _env_flag('SESSION_COOKIE_SECURE', default=IS_PRODUCTION)
+    PERMANENT_SESSION_LIFETIME = timedelta(days=14)
+
+    # Flask-Login's "remember me" cookie is a *separate* cookie from the session
+    # and carries the same authority, but its defaults are laxer: no Secure, no
+    # SameSite, and a one-year lifetime. Mirror the session's hardening onto it.
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = 'Lax'
+    REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    REMEMBER_COOKIE_DURATION = timedelta(days=14)
 
     # File upload settings
     UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'images', 'products')

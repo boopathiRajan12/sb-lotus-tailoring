@@ -2,7 +2,7 @@
 Database models package.
 All SQLAlchemy models are defined here.
 """
-from .database import db
+from .database import db, utcnow
 from .user import User, MEASUREMENT_KEYS
 from .category import Category
 from .product import Product
