@@ -57,13 +57,12 @@ the app points at Supabase.
    change the password. If you see the "no admin was created" warning instead,
    `ADMIN_PASSWORD` was missing or too short — set it and redeploy.
 
-`build.sh` builds the React app into `frontend/dist`, installs the Python
-dependencies, creates any missing tables in Supabase, and seeds sample data if
-the database is empty. Flask then serves the built SPA and the API from one
-process, so only one port is needed.
+`build.sh` builds the React app into `frontend/dist` and installs the Python
+dependencies. The database tables are created and sample data is seeded during
+Render's pre-deploy phase (defined by `preDeployCommand: python seed_data.py` in `render.yaml`),
+which runs after the build succeeds and has full network access to the database.
+Flask then serves the built SPA and the API from one process, so only one port is needed.
 
-If the first build ran before you set `SUPABASE_DB_URL`, it skips the database
-step and says so in the log — just redeploy once the variable is in place.
 
 ---
 
